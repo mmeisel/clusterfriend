@@ -1,0 +1,11 @@
+- On boot, wait to hear someone else for some fixed amount of time (say 10s)
+- Either try to TX in sync with who you hear, or just start TXing if you don't hear anyone
+- After initial boot, there is a fixed wakeup frequency (e.g. every 10s) at which point the receiver turns on, and runs the firefly algorithm for a fixed period of time (e.g. 1s) to account for clock drift. (A single TX occurs at the end of this cycle.)
+- Using the RSSI of your peers, run some clustering algorithm to find the largest cluster (of similar RSSIs).  We probably need at least some sanity check against the full RSSI range, so that we don't "cluster" things that are really far away just because no one is close to each other. The central tendency of these RSSI values gives a "distance" that determines the hot/cold value.
+  - Open question how to determine the hot/cold range
+  - One simple cop-out would be a sensitivity knob
+  - Or could we use the relative RSSIs between those in the cluster? E.g. whatever the spread is between those in the cluster, how large is that compared to the absolute RSSI? We would need at least three devices for this.
+- Keep the history of the last few distances, this gives us a "getting warmer"/"getting colder" metric.
+  - This may solve the "how far" problem, as well as the distance problem... either I'm in the biggest cluster "HOT!" or I'm not. If I'm not, when I move, I get warmer/colder indications. If I am, it's just like "yay, you're here!"
+- So the basic states are: getting warmer, getting colder, not moving, and in the cluster
+- For the "I need an adult"/"wait for me" feature, it just makes everyone in what IT thinks is the biggest cluster (it will have to list them all I think) enter the "wait for me" state until that person joins the cluster (or somehow cancels their request? maybe it just expires after some time and they need to press it again)
