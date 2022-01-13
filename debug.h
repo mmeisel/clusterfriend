@@ -1,5 +1,5 @@
-#ifndef DEBUG_H
-#define DEBUG_H
+#ifndef __CF_DEBUG_H__
+#define __CF_DEBUG_H__
 
 // Global debug mode setting
 #define DEBUG 1
