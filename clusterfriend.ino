@@ -4,12 +4,11 @@
 // Required libraries:
 // - Low-Power v1.81.0 (https://github.com/rocketscream/Low-Power)
 // - RadioLib v5.1.0 (https://github.com/jgromes/RadioLib)
-// - uTimerLib v1.6.7 (https://github.com/Naguissa/uTimerLib)
 #include <LowPower.h>
 #include <RadioLib.h>
-#include <uTimerLib.h>
 
 #include "debug.h"
+#include "clock.h"
 
 
 
@@ -44,17 +43,17 @@ uint8_t packet_buffer[PACKET_SIZE];
 
 // Flag to indicate that a packet was received and the time of reception
 volatile bool data_received = false;
-volatile unsigned long receive_time = 0UL;
+volatile unsigned long receive_offset = 0UL;
 volatile bool timer_fired = false;
-volatile unsigned long my_fire_time = 0UL;
+volatile unsigned long my_last_offset = 0UL;
 
 // Disable interrupt when it's not needed
 volatile bool enable_receive_interrupt = true;
 
 // DESYNC-TDMA algorithm state
 bool waiting_for_next = false;
-unsigned long next_fire_time = 0UL;
-unsigned long prev_fire_time = 0UL;
+unsigned long next_offset = 0UL;
+unsigned long prev_offset = 0UL;
 
 
 
@@ -112,26 +111,29 @@ void setup() {
     while (true);
   }
 
-  // Initialize DESYNC-TDMA state and timer
-  TimerLib.setTimeout_us(handle_timer, CYCLE_DURATION);
+  // Initialize DESYNC-TDMA timer
+  clock::set_timeout(handle_timer, CYCLE_DURATION);
 }
 
 
 
 void loop() {
   if (timer_fired) {
-    unsigned long transmit_start_time = micros();
     transmit();
-    radio.startReceive();
-    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-
-    DEBUG_PRINT(F("Timer fired at "));
-    DEBUG_PRINTLN(transmit_start_time);
 
     waiting_for_next = true;
-    prev_fire_time = receive_time;
+    prev_offset = receive_offset;
     timer_fired = false;
-    TimerLib.setTimeout_us(handle_timer, CYCLE_DURATION - (micros() - transmit_start_time));
+
+    unsigned long next_timeout = CYCLE_DURATION - (clock::elapsed() - my_last_offset);
+    clock::set_timeout(handle_timer, next_timeout);
+
+    radio.startReceive();
+
+    DEBUG_PRINT(F("@"));
+    DEBUG_PRINT(my_last_offset);
+    DEBUG_PRINT(F(" timeout="));
+    DEBUG_PRINTLN(next_timeout);
   }
 
   if (data_received) {
@@ -140,8 +142,8 @@ void loop() {
     int radio_state = radio.readData(packet_buffer, PACKET_SIZE);
 
     if (radio_state == RADIOLIB_ERR_NONE) {
-      DEBUG_PRINT(F("Received packet at "));
-      DEBUG_PRINTLN(receive_time);
+      DEBUG_PRINT(F("Receiving @"));
+      DEBUG_PRINT(receive_offset);
       debug_print_packet_buffer();
     }
     else {
@@ -149,31 +151,32 @@ void loop() {
       DEBUG_PRINTLN(radio_state);
     }
 
-    if (waiting_for_next) {
+    // If the prev_offset is zero, we haven't received a previous message yet, since 0 is when
+    // we fire. There would be a collision if another device fired at the same time.
+    if (waiting_for_next && prev_offset > 0UL) {
       // This is a message from the neighbor that fires immediately after us, adjust our timer
       waiting_for_next = false;
-      next_fire_time = receive_time;
+      next_offset = receive_offset;
 
-      // In case we didn't hear anyone fire before us (like in the case of only two devices),
-      // make sure prev_fire_time is something reasonable
-      prev_fire_time = max(prev_fire_time, next_fire_time - CYCLE_DURATION);
-
-      unsigned long goal_time = (unsigned long) (
-        (double) CYCLE_DURATION +
-        (1.0 - DESYNC_ALPHA) * (double) my_fire_time +
-        DESYNC_ALPHA * (prev_fire_time + next_fire_time) / 2.0
+      unsigned long goal_offset = (unsigned long) (
+        DESYNC_ALPHA * ((double) prev_offset + (double) next_offset) / 2.0 +
+        0.5 // For rounding
       );
+      unsigned long next_timeout = CYCLE_DURATION + goal_offset - clock::elapsed();
 
-      DEBUG_PRINT(F("Next firing at "));
-      DEBUG_PRINT(goal_time);
-      DEBUG_PRINT(F(" prev_fire_time="));
-      DEBUG_PRINT(prev_fire_time);
-      DEBUG_PRINT(F(" my_fire_time="));
-      DEBUG_PRINT(my_fire_time);
-      DEBUG_PRINT(F(" next_fire_time="));
-      DEBUG_PRINTLN(next_fire_time);
+      clock::set_timeout(handle_timer, next_timeout);
+      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
 
-      TimerLib.setTimeout_us(handle_timer, goal_time - micros());
+      DEBUG_PRINT(F("@"));
+      DEBUG_PRINT(receive_offset);
+      DEBUG_PRINT(F(" next="));
+      DEBUG_PRINT(next_offset);
+      DEBUG_PRINT(F(" my="));
+      DEBUG_PRINT(my_last_offset);
+      DEBUG_PRINT(F(" prev="));
+      DEBUG_PRINT(prev_offset);
+      DEBUG_PRINT(F(" timeout="));
+      DEBUG_PRINTLN(next_timeout);
     }
 
     data_received = false;
@@ -188,7 +191,7 @@ void loop() {
 
 
 void handle_timer() {
-  my_fire_time = micros();
+  my_last_offset = clock::elapsed();
   timer_fired = true;
 }
 
@@ -196,7 +199,7 @@ void handle_timer() {
 
 void handle_receive() {
   if (enable_receive_interrupt) {
-    receive_time = micros();
+    receive_offset = clock::elapsed();
     data_received = true;
   }
 }
@@ -226,7 +229,7 @@ void transmit() {
   packet_buffer[0] = 0xbe;
   packet_buffer[1] = 0xef;
 
-  DEBUG_PRINT("Sending ");
+  DEBUG_PRINT(F("Sending"));
   debug_print_packet_buffer();
 
   // Send data, disabling interrupt while tranmitting (otherwise it's triggered on TX done)
