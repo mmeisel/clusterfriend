@@ -67,7 +67,7 @@ ISR(TIMER2_OVF_vect) {
   micros_elapsed += next_cycle_micros;
 
   if (!callback_called) {
-    if (micros_elapsed >= timeout) {
+    if (micros_elapsed == timeout) {
       // Reset the cycle size in case we had a remainder on the final cycle
       next_cycle_micros = 256 * micros_per_tick;
 
@@ -85,30 +85,24 @@ ISR(TIMER2_OVF_vect) {
 
 
 namespace clock {
-  void set_timeout(void (*cb)(), unsigned long micros) {
-    stop();
-
+  void set_timeout(void (*cb)(), unsigned long duration_micros) {
     if (micros_per_tick == 0UL) {
       // First call, run clock_init() which will set everything up
       clock_init();
     }
 
+    timeout = micros() + duration_micros;
     callback = cb;
-    timeout = micros;
-    micros_elapsed = 0UL;
     callback_called = false;
-
-    // Reset timer count and enable interrupts
-    TCNT2 = 0;
     TIMSK2 = bit(TOIE2); // Enable overflow interruption when 0
   }
 
-  void stop() {
-    // Disable timer2 interrupts
-    TIMSK2 = 0;
+  void clear_timeout() {
+    callback_called = true;
+    callback = nullptr;
   }
 
-  unsigned long elapsed() {
+  unsigned long micros() {
     unsigned long since_last_cycle = TCNT2 * micros_per_tick;
 
     // Special case for truncated final tick, we skipped the part of this cycle
@@ -117,5 +111,10 @@ namespace clock {
     }
 
     return micros_elapsed + since_last_cycle;
+  }
+
+  void stop() {
+    // Disable timer2 interrupts
+    TIMSK2 = 0;
   }
 }
