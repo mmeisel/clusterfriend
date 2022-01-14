@@ -67,7 +67,7 @@ ISR(TIMER2_OVF_vect) {
   micros_elapsed += next_cycle_micros;
 
   if (!callback_called) {
-    if (micros_elapsed == timeout) {
+    if ((long) (micros_elapsed - timeout) >= 0) {
       // Reset the cycle size in case we had a remainder on the final cycle
       next_cycle_micros = 256 * micros_per_tick;
 
@@ -92,6 +92,11 @@ namespace clock {
     }
 
     timeout = micros() + duration_micros;
+    // We have a maximum precision of micros_per_tick, so we call the callback at the *beginning*
+    // of the tick that contains the timeout. Round the timeout down to the nearest tick to reflect
+    // this.
+    timeout -= timeout % micros_per_tick;
+
     callback = cb;
     callback_called = false;
     TIMSK2 = bit(TOIE2); // Enable overflow interruption when 0
