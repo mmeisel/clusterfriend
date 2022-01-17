@@ -55,16 +55,12 @@
 #define RFM_CS_PIN 4
 #define LED_PIN 8
 
-// Some versions of Arduino define the max() macro using statement-expressions, which can't be used
-// outside a function. Define the simple version for use below
-#define MY_MAX(a, b) ((a) > (b)) ? (a) : (b)
-
 // Computed from the networking parameters and packet size
 // See https://www.rfwireless-world.com/calculators/LoRaWAN-Airtime-calculator.html
 const unsigned long PACKET_AIRTIME_MICROS = (unsigned long) (
   1000.0 * ((1 << LORA_SF) / RFM_BW) * (
     (LORA_PREAMBLE + 4.25) + // Preamble
-    (8.0 + MY_MAX(
+    (8.0 + max(
       0.0,
       ceil((8.0 * sizeof(packet::Packet) - 4.0 * LORA_SF + 44.0) / (4.0 * LORA_SF)) * LORA_CR
     )) // Payload
@@ -157,6 +153,7 @@ void loop() {
   if (newCycleStarted) {
     newCycleStarted = false;
     tdmaStartCycle();
+    radio.startReceive();
   }
 
   if (readyToTransmit) {
@@ -305,10 +302,6 @@ void tdmaStartCycle() {
   }
 
   tdmaSetTransmitTimeout();
-
-  if (tdmaMySlot != 0) {
-    radio.startReceive();
-  }
 
   DEBUG_PRINT(F("<-> "));
   DEBUG_PRINTLN(cycleStartTime);
@@ -487,11 +480,11 @@ void receive() {
 void transmit() {
   waitForRadio();
 
-  unsigned long delayMillis = (
+  long delayMillis = (long) (
     clock::micros() - tdmaMySlot * TDMA_SLOT_SIZE - cycleStartTime + 500UL /* for rounding */
-  ) / 1000UL;
+  ) / 1000L;
 
-  if (delayMillis >= 1 << sizeof(packetBuffer.delayMillis)) {
+  if (delayMillis >= 1 << (sizeof(packetBuffer.delayMillis) * 8)) {
     // Too long a delay to put in the packet, we've certainly missed our slot anyway, just skip
     // this transmission
     DEBUG_PRINT(clock::micros());
@@ -501,7 +494,7 @@ void transmit() {
   }
 
   packetBuffer.slot = tdmaMySlot;
-  packetBuffer.delayMillis = delayMillis;
+  packetBuffer.delayMillis = max(0L, delayMillis);
   // These two fields are not currently in use
   packetBuffer.flags = 0;
   packetBuffer.reserved = 0;
