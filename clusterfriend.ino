@@ -66,28 +66,28 @@ const unsigned long SLOT_SIZE = PACKET_AIRTIME_MICROS + TDMA_SLOT_PADDING;
 RFM95 radio = new Module(RFM_CS_PIN, RFM_G0_PIN, RFM_RST_PIN);
 
 // Buffer
-packet::Packet packet_buffer;
+packet::Packet packetBuffer;
 
 // Interrupt handler states
-volatile bool data_received = false;
-volatile unsigned long receive_time = 0UL;
-volatile bool new_cycle_started = false;
-volatile unsigned long cycle_start_time = 0UL;
-volatile bool ready_to_transmit = false;
-volatile bool cycle_complete = false;
+volatile bool dataReceived = false;
+volatile unsigned long receiveTime = 0UL;
+volatile bool newCycleStarted = false;
+volatile unsigned long cycleStartTime = 0UL;
+volatile bool readyToTransmit = false;
+volatile bool cycleComplete = false;
 
 // Disable receive interrupt when it's not needed
-volatile bool enable_receive_interrupt = true;
+volatile bool enableReceiveInterrupt = true;
 
 // TDMA algorithm state
-volatile int tdma_total_slots = 0;
-volatile int tdma_my_slot = -1;
-volatile bool tdma_startup_phase = true;
-int tdma_cycle_neighbor_count = 0;
-long tdma_cycle_offset = 0L;
-bool tdma_tx_complete = false;
-uint8_t tdma_prev_slot_unused_cycles = 0;
-uint8_t tdma_last_slot_unused_cycles = 0;
+volatile int tdmaTotalSlots = 0;
+volatile int tdmaMySlot = -1;
+volatile bool tdmaStartupPhase = true;
+int tdmaCycleNeighborCount = 0;
+long tdmaCycleOffset = 0L;
+bool tdmaTxComplete = false;
+uint8_t tdmaPrevSlotUnusedCycles = 0;
+uint8_t tdmaLastSlotUnusedCycles = 0;
 
 
 
@@ -105,7 +105,7 @@ void setup() {
 
   // Initialize radio
   // See https://github.com/jgromes/RadioLib/wiki/Default-configuration#sx127xrfm9x---lora-modem
-  int radio_state = radio.begin(
+  int radioState = radio.begin(
     RFM_FREQ,
     RFM_BW,
     LORA_SF,
@@ -116,9 +116,9 @@ void setup() {
     0 // Automatic gain control
   );
 
-  if (radio_state != RADIOLIB_ERR_NONE) {
+  if (radioState != RADIOLIB_ERR_NONE) {
     DEBUG_PRINT(F("Could not initialize RFM95, code "));
-    DEBUG_PRINTLN(radio_state);
+    DEBUG_PRINTLN(radioState);
     while (true);
   }
 
@@ -126,283 +126,283 @@ void setup() {
   DEBUG_PRINTLN(PACKET_AIRTIME_MICROS);
 
   // Set receive interrupt handler and start listening
-  radio.setDio0Action(handle_receive);
-  radio_state = radio.startReceive();
+  radio.setDio0Action(handleReceive);
+  radioState = radio.startReceive();
 
-  if (radio_state == RADIOLIB_ERR_NONE) {
+  if (radioState == RADIOLIB_ERR_NONE) {
     DEBUG_PRINTLN(F("Listening..."));
   }
   else {
     DEBUG_PRINT(F("Could not start receive mode on RFM95, code "));
-    DEBUG_PRINTLN(radio_state);
+    DEBUG_PRINTLN(radioState);
     while (true);
   }
 
   // Initial startup phase timer
-  clock::set_timeout(handle_startup_timeout, TDMA_CYCLE_DURATION * 3);
+  clock::setTimeout(handleStartupTimeout, TDMA_CYCLE_DURATION * 3);
 }
 
 
 
 void loop() {
-  if (new_cycle_started) {
-    new_cycle_started = false;
-    tdma_cycle_neighbor_count = 0;
-    tdma_cycle_offset = 0L;
-    tdma_tx_complete = false;
+  if (newCycleStarted) {
+    newCycleStarted = false;
+    tdmaCycleNeighborCount = 0;
+    tdmaCycleOffset = 0L;
+    tdmaTxComplete = false;
 
-    if (tdma_my_slot > 0) {
-      tdma_prev_slot_unused_cycles++;
+    if (tdmaMySlot > 0) {
+      tdmaPrevSlotUnusedCycles++;
     }
 
-    if (tdma_my_slot != tdma_total_slots - 1) {
-      tdma_last_slot_unused_cycles++;
+    if (tdmaMySlot != tdmaTotalSlots - 1) {
+      tdmaLastSlotUnusedCycles++;
     }
 
-    set_transmit_timeout();
+    tdmaSetTransmitTimeout();
 
-    if (tdma_my_slot != 0) {
+    if (tdmaMySlot != 0) {
       radio.startReceive();
     }
 
     DEBUG_PRINT(F("<-> "));
-    DEBUG_PRINTLN(cycle_start_time);
+    DEBUG_PRINTLN(cycleStartTime);
   }
 
-  if (ready_to_transmit) {
-    ready_to_transmit = false;
+  if (readyToTransmit) {
+    readyToTransmit = false;
     digitalWrite(LED_PIN, HIGH);
     transmit();
-    tdma_tx_complete = true;
-    set_cycle_end_timeout();
+    tdmaTxComplete = true;
+    tdmaSetCycleEndTimeout();
     radio.startReceive();
   }
 
-  if (data_received) {
-    enable_receive_interrupt = false;
+  if (dataReceived) {
+    enableReceiveInterrupt = false;
 
     receive();
 
     // TODO: do we need to worry about transmission delay?
-    unsigned long neighbor_cycle_start_time = (
-      receive_time -
-      packet_buffer.delay_millis * 1000UL -
+    unsigned long neighborCycleStartTime = (
+      receiveTime -
+      packetBuffer.delayMillis * 1000UL -
       PACKET_AIRTIME_MICROS -
-      packet_buffer.slot * SLOT_SIZE
+      packetBuffer.slot * SLOT_SIZE
     );
 
-    if (tdma_startup_phase && cycle_start_time == 0UL) {
-      // This is the first neighbor we heard in the startup phase! We don't have a cycle_start_time
+    if (tdmaStartupPhase && cycleStartTime == 0UL) {
+      // This is the first neighbor we heard in the startup phase! We don't have a cycleStartTime
       // yet, so make a first approximation here. We'll make a finer adjustment at the end of the
       // cycle, just like in all future cycles.
-      cycle_start_time = neighbor_cycle_start_time;
+      cycleStartTime = neighborCycleStartTime;
     }
 
     // Track the discrepancy between the expected start time for each slot versus the actual
     // receive time. This will be used to keep us in sync with our neighbors.
-    tdma_cycle_neighbor_count++;
-    tdma_cycle_offset += (long) (neighbor_cycle_start_time - cycle_start_time);
+    tdmaCycleNeighborCount++;
+    tdmaCycleOffset += (long) (neighborCycleStartTime - cycleStartTime);
 
-    if (packet_buffer.slot == tdma_my_slot - 1) {
+    if (packetBuffer.slot == tdmaMySlot - 1) {
       // Track when the previous slot is unusued so we can steal it
-      tdma_prev_slot_unused_cycles = 0;
+      tdmaPrevSlotUnusedCycles = 0;
     }
-    else if (packet_buffer.slot == tdma_my_slot) {
+    else if (packetBuffer.slot == tdmaMySlot) {
       // Uh oh, we have a conflict!
       // If we haven't already transmitted, cancel transmission and pick a new slot when the cycle
       // completes -- essentially leaving and re-joining the network.
-      if (!tdma_tx_complete) {
-        tdma_startup_phase = true;
-        set_cycle_end_timeout();
+      if (!tdmaTxComplete) {
+        tdmaStartupPhase = true;
+        tdmaSetCycleEndTimeout();
       }
     }
-    else if (packet_buffer.slot == tdma_total_slots - 1) {
+    else if (packetBuffer.slot == tdmaTotalSlots - 1) {
       // Track when the last slot is unused so we can shrink the cycle accordingly
-      tdma_last_slot_unused_cycles = 0;
+      tdmaLastSlotUnusedCycles = 0;
     }
-    else if (packet_buffer.slot >= tdma_total_slots) {
+    else if (packetBuffer.slot >= tdmaTotalSlots) {
       // A new neighbor! Update our state and reset our end of cycle timer if necesssary.
-      tdma_total_slots = packet_buffer.slot + 1;
-      tdma_last_slot_unused_cycles = 0;
+      tdmaTotalSlots = packetBuffer.slot + 1;
+      tdmaLastSlotUnusedCycles = 0;
 
-      if (tdma_startup_phase || tdma_tx_complete) {
+      if (tdmaStartupPhase || tdmaTxComplete) {
         // We already transmitted or are still starting up, so reschedule our end-of-cycle sleep.
         // (This should always be the case unless the new neighbor transmitted way too early.)
-        set_cycle_end_timeout();
+        tdmaSetCycleEndTimeout();
       }
 
       DEBUG_PRINT(clock::micros());
       DEBUG_PRINT(F(" TDMA total slots increased to "));
-      DEBUG_PRINTLN(tdma_total_slots);
+      DEBUG_PRINTLN(tdmaTotalSlots);
     }
 
-    data_received = false;
-    enable_receive_interrupt = true;
+    dataReceived = false;
+    enableReceiveInterrupt = true;
     radio.startReceive();
   }
 
-  if (cycle_complete) {
-    cycle_complete = false;
+  if (cycleComplete) {
+    cycleComplete = false;
     digitalWrite(LED_PIN, LOW);
 
     // Make sure we complete any radio operation that's currently ongoing
-    wait_for_radio();
+    waitForRadio();
     radio.sleep();
 
-    if (tdma_startup_phase) {
+    if (tdmaStartupPhase) {
       // We heard a cycle during the startup phase! End the startup phase and pick a slot.
-      tdma_startup_phase = false;
-      tdma_my_slot = tdma_total_slots;
-      tdma_total_slots++;
-      tdma_prev_slot_unused_cycles = 0;
-      tdma_last_slot_unused_cycles = 0;
+      tdmaStartupPhase = false;
+      tdmaMySlot = tdmaTotalSlots;
+      tdmaTotalSlots++;
+      tdmaPrevSlotUnusedCycles = 0;
+      tdmaLastSlotUnusedCycles = 0;
 
       DEBUG_PRINT(clock::micros());
       DEBUG_PRINT(F(" TDMA join | slot="));
-      DEBUG_PRINT(tdma_my_slot);
+      DEBUG_PRINT(tdmaMySlot);
       DEBUG_PRINT(F(" total="));
-      DEBUG_PRINTLN(tdma_total_slots);
+      DEBUG_PRINTLN(tdmaTotalSlots);
     }
-    else if (tdma_my_slot > 0 && tdma_prev_slot_unused_cycles >= TDMA_STEAL_AFTER_UNUSED_CYCLES) {
+    else if (tdmaMySlot > 0 && tdmaPrevSlotUnusedCycles >= TDMA_STEAL_AFTER_UNUSED_CYCLES) {
       // The slot below us isn't in use, steal it to defragment the cycle. If we were in the last
       // slot, reduce our total slots (everyone else will figure it out eventually).
-      if (tdma_my_slot == tdma_total_slots - 1) {
-        tdma_total_slots--;
+      if (tdmaMySlot == tdmaTotalSlots - 1) {
+        tdmaTotalSlots--;
       }
-      tdma_my_slot--;
-      tdma_prev_slot_unused_cycles = 0;
+      tdmaMySlot--;
+      tdmaPrevSlotUnusedCycles = 0;
 
       DEBUG_PRINT(clock::micros());
       DEBUG_PRINT(F(" TDMA my slot now "));
-      DEBUG_PRINTLN(tdma_my_slot);
+      DEBUG_PRINTLN(tdmaMySlot);
     }
 
     if (
-      tdma_my_slot < tdma_total_slots - 1 &&
-      tdma_last_slot_unused_cycles >= TDMA_STEAL_AFTER_UNUSED_CYCLES
+      tdmaMySlot < tdmaTotalSlots - 1 &&
+      tdmaLastSlotUnusedCycles >= TDMA_STEAL_AFTER_UNUSED_CYCLES
     ) {
       // The last slot is unused, reduce our total slots to reduce the overall cycle time.
-      tdma_total_slots--;
-      tdma_last_slot_unused_cycles = 0;
+      tdmaTotalSlots--;
+      tdmaLastSlotUnusedCycles = 0;
 
       DEBUG_PRINT(clock::micros());
       DEBUG_PRINT(F(" TDMA total slots decreased to "));
-      DEBUG_PRINTLN(tdma_total_slots);
+      DEBUG_PRINTLN(tdmaTotalSlots);
     }
 
-    set_cycle_start_timeout();
+    tdmaSetCycleStartTimeout();
   }
 
   DEBUG_FLUSH();
-  go_to_sleep();
+  goToSleep();
 }
 
 
 
-void set_cycle_start_timeout() {
+void tdmaSetCycleStartTimeout() {
   // Adjust our cycle start time based on the average discrepancy between the expected start time
   // for each slot versus the actual receive time, including ourselves in the average by adding
   // one to the denominator (from our perspective, our offset of course is zero).
-  long adjustment = tdma_cycle_offset / (tdma_cycle_neighbor_count + 1);
+  long adjustment = tdmaCycleOffset / (tdmaCycleNeighborCount + 1);
 
   // Wake up a little early to make sure we hear (or properly schedule) the first slot.
-  unsigned long cycle_start_timeout = TDMA_CYCLE_DURATION - SLOT_SIZE + adjustment - (
-    clock::micros() - cycle_start_time
+  unsigned long cycleStartTimeout = TDMA_CYCLE_DURATION - SLOT_SIZE + adjustment - (
+    clock::micros() - cycleStartTime
   );
 
-  clock::set_timeout(handle_cycle_start_timeout, cycle_start_timeout);
+  clock::setTimeout(handleCycleStartTimeout, cycleStartTimeout);
 
   DEBUG_PRINT(clock::micros());
   DEBUG_PRINT(F(" TDMA sleep for "));
-  DEBUG_PRINT(cycle_start_timeout);
+  DEBUG_PRINT(cycleStartTimeout);
   DEBUG_PRINT(F(" adjustment="));
   DEBUG_PRINTLN(adjustment);
 }
 
 
 
-void set_cycle_end_timeout() {
+void tdmaSetCycleEndTimeout() {
   // Listen for a couple extra slots in case someone new is trying to join
-  unsigned long cycle_end_timeout = SLOT_SIZE * (tdma_total_slots + 2) - (
-    clock::micros() - cycle_start_time
+  unsigned long cycleEndTimeout = SLOT_SIZE * (tdmaTotalSlots + 2) - (
+    clock::micros() - cycleStartTime
   );
-  clock::set_timeout(handle_cycle_end_timeout, cycle_end_timeout);
+  clock::setTimeout(handleCycleEndTimeout, cycleEndTimeout);
 
   DEBUG_PRINT(clock::micros());
   DEBUG_PRINT(F(" TDMA cycle ends in "));
-  DEBUG_PRINTLN(cycle_end_timeout);
+  DEBUG_PRINTLN(cycleEndTimeout);
 }
 
 
 
-void set_transmit_timeout() {
-  unsigned long transmit_timeout = SLOT_SIZE * tdma_my_slot;
+void tdmaSetTransmitTimeout() {
+  unsigned long transmitTimeout = SLOT_SIZE * tdmaMySlot;
   unsigned long now = clock::micros();
 
-  // We wake up a little before the first slot, so the cycle_start_time may be in the future.
-  if ((long) (cycle_start_time - now) > 0) {
-    transmit_timeout += cycle_start_time - now;
+  // We wake up a little before the first slot, so the cycleStartTime may be in the future.
+  if ((long) (cycleStartTime - now) > 0) {
+    transmitTimeout += cycleStartTime - now;
   }
   else {
-    transmit_timeout -= now - cycle_start_time;
+    transmitTimeout -= now - cycleStartTime;
   }
 
-  clock::set_timeout(handle_transmit_timeout, transmit_timeout);
+  clock::setTimeout(handleTransmitTimeout, transmitTimeout);
 
   DEBUG_PRINT(clock::micros());
   DEBUG_PRINT(F(" Will transmit in "));
-  DEBUG_PRINTLN(transmit_timeout);
+  DEBUG_PRINTLN(transmitTimeout);
 }
 
 
 
-void handle_startup_timeout() {
+void handleStartupTimeout() {
   // All alone
   DEBUG_PRINT(clock::micros());
   DEBUG_PRINTLN(F(" TDMA alone"));
 
-  tdma_my_slot = 0;
-  tdma_total_slots = 1;
-  tdma_startup_phase = false;
-  handle_cycle_start_timeout();
+  tdmaMySlot = 0;
+  tdmaTotalSlots = 1;
+  tdmaStartupPhase = false;
+  handleCycleStartTimeout();
 }
 
 
 
-void handle_cycle_start_timeout() {
+void handleCycleStartTimeout() {
   // We always wake up one SLOT_SIZE early
-  cycle_start_time = clock::micros() + SLOT_SIZE;
-  new_cycle_started = true;
+  cycleStartTime = clock::micros() + SLOT_SIZE;
+  newCycleStarted = true;
 }
 
 
 
-void handle_cycle_end_timeout() {
-  cycle_complete = true;
+void handleCycleEndTimeout() {
+  cycleComplete = true;
 }
 
 
 
-void handle_transmit_timeout() {
-  ready_to_transmit = true;
+void handleTransmitTimeout() {
+  readyToTransmit = true;
 }
 
 
 
-void handle_receive() {
-  if (enable_receive_interrupt) {
-    receive_time = clock::micros();
-    data_received = true;
+void handleReceive() {
+  if (enableReceiveInterrupt) {
+    receiveTime = clock::micros();
+    dataReceived = true;
   }
 }
 
 
 
-void debug_print_packet_buffer() {
+void debugPrintPacketBuffer() {
 #if DEBUG
   for (unsigned int i = 0; i < sizeof(packet::Packet) / sizeof(uint8_t); i++) {
     DEBUG_PRINT(F(" 0x"));
-    DEBUG_PRINT(((uint8_t*) &packet_buffer)[i], HEX);
+    DEBUG_PRINT(((uint8_t*) &packetBuffer)[i], HEX);
   }
   DEBUG_PRINTLN();
 #endif
@@ -410,13 +410,13 @@ void debug_print_packet_buffer() {
 
 
 
-void go_to_sleep() {
+void goToSleep() {
   LowPower.powerSave(SLEEP_FOREVER, ADC_OFF, BOD_OFF, TIMER2_ON);
 }
 
 
 
-void wait_for_radio() {
+void waitForRadio() {
   // Only bits 0, 1, and 3 are meaningful according to the datasheet, if they're all clear, the
   // radio isn't in use.
   while ((radio.getModemStatus() & 0x0b)) {
@@ -427,61 +427,61 @@ void wait_for_radio() {
 
 
 void receive() {
-  int radio_state = radio.readData((uint8_t*) &packet_buffer, sizeof(packet::Packet));
+  int radioState = radio.readData((uint8_t*) &packetBuffer, sizeof(packet::Packet));
 
-  if (radio_state == RADIOLIB_ERR_NONE) {
-    DEBUG_PRINT(receive_time);
+  if (radioState == RADIOLIB_ERR_NONE) {
+    DEBUG_PRINT(receiveTime);
     DEBUG_PRINT(F(" RECEIVE | expected="));
-    DEBUG_PRINT(cycle_start_time + packet_buffer.slot * SLOT_SIZE);
+    DEBUG_PRINT(cycleStartTime + packetBuffer.slot * SLOT_SIZE);
     DEBUG_PRINT(F(" actual="));
-    DEBUG_PRINT(receive_time - packet_buffer.delay_millis * 1000UL);
+    DEBUG_PRINT(receiveTime - packetBuffer.delayMillis * 1000UL);
     DEBUG_PRINT(F(" data:"));
-    debug_print_packet_buffer();
+    debugPrintPacketBuffer();
   }
   else {
     DEBUG_PRINT(F("Could not receive, code "));
-    DEBUG_PRINTLN(radio_state);
+    DEBUG_PRINTLN(radioState);
   }
 }
 
 
 
 void transmit() {
-  wait_for_radio();
+  waitForRadio();
 
-  unsigned long delay_millis = (
-    clock::micros() - tdma_my_slot * SLOT_SIZE - cycle_start_time + 500UL /* for rounding */
+  unsigned long delayMillis = (
+    clock::micros() - tdmaMySlot * SLOT_SIZE - cycleStartTime + 500UL /* for rounding */
   ) / 1000UL;
 
-  if (delay_millis >= 1 << sizeof(packet_buffer.delay_millis)) {
+  if (delayMillis >= 1 << sizeof(packetBuffer.delayMillis)) {
     // Too long a delay to put in the packet, we've certainly missed our slot anyway, just skip
     // this transmission
     DEBUG_PRINT(clock::micros());
-    DEBUG_PRINT(F(" Skipping tx delay_millis="));
-    DEBUG_PRINTLN(delay_millis);
+    DEBUG_PRINT(F(" Skipping tx delayMillis="));
+    DEBUG_PRINTLN(delayMillis);
     return;
   }
 
-  packet_buffer.slot = tdma_my_slot;
-  packet_buffer.delay_millis = delay_millis;
+  packetBuffer.slot = tdmaMySlot;
+  packetBuffer.delayMillis = delayMillis;
   // These two fields are not currently in use
-  packet_buffer.flags = 0;
-  packet_buffer.reserved = 0;
+  packetBuffer.flags = 0;
+  packetBuffer.reserved = 0;
 
   // Send data, disabling interrupt while tranmitting (otherwise it's triggered on TX done)
-  bool receive_interrupt_prev_state = enable_receive_interrupt;
+  bool receiveInterruptPrevState = enableReceiveInterrupt;
 
-  enable_receive_interrupt = false;
-  int radio_state = radio.transmit((uint8_t*) &packet_buffer, sizeof(packet::Packet));
-  enable_receive_interrupt = receive_interrupt_prev_state;
+  enableReceiveInterrupt = false;
+  int radioState = radio.transmit((uint8_t*) &packetBuffer, sizeof(packet::Packet));
+  enableReceiveInterrupt = receiveInterruptPrevState;
 
-  if (radio_state == RADIOLIB_ERR_NONE) {
+  if (radioState == RADIOLIB_ERR_NONE) {
     DEBUG_PRINT(clock::micros());
     DEBUG_PRINT(F(" SENT"));
-    debug_print_packet_buffer();
+    debugPrintPacketBuffer();
   }
   else {
     DEBUG_PRINT(F("Could not transmit, code "));
-    DEBUG_PRINTLN(radio_state);
+    DEBUG_PRINTLN(radioState);
   }
 }
