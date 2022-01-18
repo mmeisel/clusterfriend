@@ -4,6 +4,8 @@
 #include "debug.h"
 
 
+namespace {
+
 void (*callback)() = nullptr;
 unsigned long timeout = 0UL;
 unsigned long microsPerTick = 0UL; // 0 indicates not yet initialized
@@ -60,6 +62,8 @@ void clockInit() {
   DEBUG_PRINTLN("Timer2 initialized");
 }
 
+} // namespace
+
 
 
 // Timer2 overflow interrupt routine
@@ -85,41 +89,43 @@ ISR(TIMER2_OVF_vect) {
 
 
 namespace clock {
-  void setTimeout(void (*cb)(), unsigned long durationMicros) {
-    if (microsPerTick == 0UL) {
-      // First call, run clockInit() which will set everything up
-      clockInit();
-    }
 
-    timeout = micros() + durationMicros;
-    // We have a maximum precision of microsPerTick, so we call the callback at the *beginning*
-    // of the tick that contains the timeout. Round the timeout down to the nearest tick to reflect
-    // this.
-    timeout -= timeout % microsPerTick;
-
-    callback = cb;
-    callbackCalled = false;
-    TIMSK2 = bit(TOIE2); // Enable overflow interruption when 0
+void setTimeout(void (*cb)(), unsigned long durationMicros) {
+  if (microsPerTick == 0UL) {
+    // First call, run clockInit() which will set everything up
+    clockInit();
   }
 
-  void clearTimeout() {
-    callbackCalled = true;
-    callback = nullptr;
-  }
+  timeout = micros() + durationMicros;
+  // We have a maximum precision of microsPerTick, so we call the callback at the *beginning*
+  // of the tick that contains the timeout. Round the timeout down to the nearest tick to reflect
+  // this.
+  timeout -= timeout % microsPerTick;
 
-  unsigned long micros() {
-    unsigned long sinceLastCycle = TCNT2 * microsPerTick;
-
-    // Special case for truncated final tick, we skipped the part of this cycle
-    if (nextCycleMicros < 256 * microsPerTick) {
-      sinceLastCycle -= 256 * microsPerTick - nextCycleMicros;
-    }
-
-    return microsElapsed + sinceLastCycle;
-  }
-
-  void stop() {
-    // Disable timer2 interrupts
-    TIMSK2 = 0;
-  }
+  callback = cb;
+  callbackCalled = false;
+  TIMSK2 = bit(TOIE2); // Enable overflow interruption when 0
 }
+
+void clearTimeout() {
+  callbackCalled = true;
+  callback = nullptr;
+}
+
+unsigned long micros() {
+  unsigned long sinceLastCycle = TCNT2 * microsPerTick;
+
+  // Special case for truncated final tick, we skipped the part of this cycle
+  if (nextCycleMicros < 256 * microsPerTick) {
+    sinceLastCycle -= 256 * microsPerTick - nextCycleMicros;
+  }
+
+  return microsElapsed + sinceLastCycle;
+}
+
+void stop() {
+  // Disable timer2 interrupts
+  TIMSK2 = 0;
+}
+
+} // namespace clock
