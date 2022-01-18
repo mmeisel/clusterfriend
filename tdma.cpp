@@ -48,6 +48,7 @@ using namespace tdma;
 // Provided/computed at startup time
 unsigned long packetAirtimeMicros = 0UL;
 unsigned long slotSize = 0UL;
+int availableSlots = 0;
 
 // TDMA state
 volatile unsigned long cycleStartTime = 0UL;
@@ -232,6 +233,7 @@ namespace tdma {
 void startup(unsigned long packetAirtime) {
   packetAirtimeMicros = packetAirtime;
   slotSize = packetAirtimeMicros + TDMA_SLOT_PADDING;
+  availableSlots = TDMA_CYCLE_DURATION / slotSize;
   // Initial startup phase timer
   clock::setTimeout(handleStartupTimeout, TDMA_CYCLE_DURATION * 3);
 }
@@ -239,6 +241,13 @@ void startup(unsigned long packetAirtime) {
 
 
 void processPacket(const packet::Packet& packet, unsigned long receiveTime) {
+  if (packet.slot >= availableSlots) {
+    DEBUG_PRINT(clock::micros());
+    DEBUG_PRINT(F(" TDMA no such slot! "));
+    DEBUG_PRINTLN(packet.slot);
+    return;
+  }
+
   // TODO: do we need to worry about transmission delay?
   unsigned long receivedDelay = packet::getDelayMicros(packet);
   unsigned long neighborCycleStartTime = (

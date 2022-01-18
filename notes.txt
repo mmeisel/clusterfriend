@@ -9,3 +9,29 @@
   - This may solve the "how far" problem, as well as the distance problem... either I'm in the biggest cluster "HOT!" or I'm not. If I'm not, when I move, I get warmer/colder indications. If I am, it's just like "yay, you're here!"
 - So the basic states are: getting warmer, getting colder, not moving, and in the cluster
 - For the "I need an adult"/"wait for me" feature, it just makes everyone in what IT thinks is the biggest cluster (it will have to list them all I think) enter the "wait for me" state until that person joins the cluster (or somehow cancels their request? maybe it just expires after some time and they need to press it again)
+
+Receiving random garbage:
+
+<-> 3343802160
+3343841192 RECEIVED 0x0 0x19 0x0 0x0
+3343908344 SENT 0x1 0x10 0x0 0x0
+3343909312 TDMA cycle ends in 218272
+3343973776 RECEIVED 0x2 0xC 0x0 0x0
+3344088464 RECEIVED 0xAF 0x8A 0xD8 0x6A  <--- HERE!
+3344093552 TDMA cycle ends in 11291504
+3344095536 TDMA total slots increased to 176
+3348839688 RECEIVED 0x0 0x5 0x0 0x0
+3348979088 RECEIVED 0x2 0xF 0x0 0x0
+3353844864 RECEIVED 0x0 0x9 0x0 0x0
+3353982352 RECEIVED 0x2 0x9 0x0 0x0
+3355386184 TDMA sleep for 4290675286 adjustment=2357030
+3355398520 Will transmit in 120590
+<-> 3355452112
+3355557120 SENT 0x1 0xB 0x0 0x0
+3355558040 TDMA cycle ends in 11474920
+3358848144 RECEIVED 0x0 0x10 0x0 0x0
+3358984736 RECEIVED 0x2 0xB 0x0 0x0
+3363851408 RECEIVED 0x0 0xD 0x0 0x0
+3363987992 RECEIVED 0x2 0x6 0x0 0x0
+3367034104 TDMA sleep for 4293010584 adjustment=4690296
+3367046440 Will transmit in 120585

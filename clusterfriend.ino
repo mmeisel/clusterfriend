@@ -14,10 +14,12 @@
 // Networking parameters
 #define RFM_FREQ 915.0      // In MHz
 #define RFM_BW 125.0        // In kHz, default 125
-#define RFM_OUTPUT_POWER 10 // 2..20 dBm, 10 dBm is default
+#define RFM_OUTPUT_POWER 2  // 2..20 dBm, 10 dBm is default
 #define LORA_SF 7           // 7-12, default 9
 #define LORA_PREAMBLE 8     // Default is 8 (or maybe 16?)
 #define LORA_CR 7           // Translates to 4/x, default 7
+#define LORA_SYNC_WORD 0xcf // Default is RADIOLIB_SX127X_SYNC_WORD (0x12)
+#define LORA_ENABLE_CRC true
 
 // Pins
 #define RFM_RST_PIN 2
@@ -71,7 +73,7 @@ void setup() {
     RFM_BW,
     LORA_SF,
     LORA_CR,
-    RADIOLIB_SX127X_SYNC_WORD,
+    LORA_SYNC_WORD,
     RFM_OUTPUT_POWER,
     LORA_PREAMBLE,
     0 // Automatic gain control
@@ -79,6 +81,14 @@ void setup() {
 
   if (radioState != RADIOLIB_ERR_NONE) {
     DEBUG_PRINT(F("Could not initialize RFM95, code "));
+    DEBUG_PRINTLN(radioState);
+    while (true);
+  }
+
+  radioState = radio.setCRC(LORA_ENABLE_CRC);
+
+  if (radioState != RADIOLIB_ERR_NONE) {
+    DEBUG_PRINT(F("Could not set CRC on RFM95, code "));
     DEBUG_PRINTLN(radioState);
     while (true);
   }
@@ -117,8 +127,9 @@ void loop() {
     enableReceiveInterrupt = false;
     dataReceived = false;
 
-    receive();
-    tdma::processPacket(packetBuffer, receiveTime);
+    if (receive()) {
+      tdma::processPacket(packetBuffer, receiveTime);
+    }
 
     enableReceiveInterrupt = true;
     radio.startReceive();
@@ -191,18 +202,21 @@ void waitForRadio() {
 
 
 
-void receive() {
+bool receive() {
   int radioState = radio.readData((uint8_t*) &packetBuffer, sizeof(packet::Packet));
 
+  DEBUG_PRINT(receiveTime);
+
   if (radioState == RADIOLIB_ERR_NONE) {
-    DEBUG_PRINT(receiveTime);
     DEBUG_PRINT(F(" RECEIVED"));
     debugPrintPacketBuffer();
   }
   else {
-    DEBUG_PRINT(F("Could not receive, code "));
+    DEBUG_PRINT(F(" RECEIVE ERROR code "));
     DEBUG_PRINTLN(radioState);
   }
+
+  return radioState == RADIOLIB_ERR_NONE;
 }
 
 

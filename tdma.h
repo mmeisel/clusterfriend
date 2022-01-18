@@ -1,6 +1,8 @@
 #ifndef __CF_TDMA_H__
 #define __CF_TDMA_H__
 
+#include "packet.h"
+
 namespace tdma {
 
 enum class State:uint8_t {
