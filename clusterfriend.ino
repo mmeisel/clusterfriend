@@ -86,6 +86,14 @@ void setup() {
   DEBUG_PRINT(F("RFM95 initialized, packet airtime "));
   DEBUG_PRINTLN(PACKET_AIRTIME_MICROS);
 
+  // The radio makes a great random number generator
+  randomSeed(
+    (unsigned long) radio.randomByte() << 24 |
+    (unsigned long) radio.randomByte() << 16 |
+    (unsigned long) radio.randomByte() << 8 |
+    (unsigned long) radio.randomByte()
+  );
+
   // Set receive interrupt handler and start listening
   radio.setDio0Action(handleReceive);
   radioState = radio.startReceive();
@@ -202,22 +210,22 @@ void receive() {
 void transmit() {
   waitForRadio();
 
-  long delayMillis = (tdma::getSlotTimeElapsed() + 500UL /* for rounding */) / 1000L;
+  long delayMicros = tdma::getSlotTimeElapsed();
 
-  if (delayMillis >= 1 << (sizeof(packetBuffer.delayMillis) * 8)) {
-    // Too long a delay to put in the packet, we've certainly missed our slot anyway, just skip
-    // this transmission
+  if (delayMicros > (long) PACKET_MAX_DELAY_MICROS) {
+    // The delay is too large to represent in the packet, we've certainly missed our slot anyway,
+    // just skip this transmission
     DEBUG_PRINT(clock::micros());
-    DEBUG_PRINT(F(" Skipping tx delayMillis="));
-    DEBUG_PRINTLN(delayMillis);
+    DEBUG_PRINT(F(" Skipping tx delayMicros="));
+    DEBUG_PRINTLN(delayMicros);
     return;
   }
 
   packetBuffer.slot = tdma::getSlotNumber();
-  packetBuffer.delayMillis = max(0L, delayMillis);
   // These two fields are not currently in use
   packetBuffer.flags = 0;
   packetBuffer.reserved = 0;
+  packet::setDelayMicros(packetBuffer, max(0L, delayMicros));
 
   // Send data, disabling interrupt while tranmitting (otherwise it's triggered on TX done)
   bool receiveInterruptPrevState = enableReceiveInterrupt;

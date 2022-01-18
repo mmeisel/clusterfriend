@@ -13,9 +13,8 @@
 // broadcasting at slot 0.
 //
 // If two nodes are trying to transmit in the same slot (which can happen, e.g., if two nodes are
-// trying to join the network at the same time), whoever transmits first "wins." The other node will
-// cease transmission in the current cycle and rejoin the network at the end of the pack in the next
-// cycle.
+// trying to join the network at the same time), each flips a coin to see if they will vacate the
+// slot and rejoin the network at the end of the pack in the next cycle.
 //
 // In order to recover wasted slots (e.g. if a node leaves the network), nodes track how many cycles
 // in a row the slot below them goes unused. If this number reaches a certain (configurable)
@@ -37,6 +36,7 @@
 #define TDMA_CYCLE_DURATION 5000000UL // 5 seconds in microseconds
 #define TDMA_SLOT_PADDING 30000UL // How much silence to allow in each slot, 30 ms in microseconds
 #define TDMA_STEAL_AFTER_UNUSED_CYCLES 6 // How long to wait to reuse slots, max 255
+#define TDMA_MAX_TX_DELAY_MICROS (TDMA_SLOT_PADDING / 5UL) // Don't delay more than 20% of padding
 
 
 
@@ -136,22 +136,24 @@ void setCycleEndTimeout() {
 
 
 void setTransmitTimeout() {
-  unsigned long transmitTimeout = slotSize * mySlot;
+  // Add a small random offset from the start of the slot to help resolve any collisions.
+  // The packets we send announce this delay so it won't affect synchronization.
+  unsigned long txTimeout = slotSize * mySlot + random(TDMA_MAX_TX_DELAY_MICROS);
   unsigned long now = clock::micros();
 
   // We wake up a little before the first slot, so the cycleStartTime may be in the future.
   if ((long) (cycleStartTime - now) > 0) {
-    transmitTimeout += cycleStartTime - now;
+    txTimeout += cycleStartTime - now;
   }
   else {
-    transmitTimeout -= now - cycleStartTime;
+    txTimeout -= now - cycleStartTime;
   }
 
-  clock::setTimeout(handleTransmitTimeout, transmitTimeout);
+  clock::setTimeout(handleTransmitTimeout, txTimeout);
 
   DEBUG_PRINT(clock::micros());
   DEBUG_PRINT(F(" Will transmit in "));
-  DEBUG_PRINTLN(transmitTimeout);
+  DEBUG_PRINTLN(txTimeout);
 }
 
 
@@ -238,9 +240,10 @@ void startup(unsigned long packetAirtime) {
 
 void processPacket(const packet::Packet& packet, unsigned long receiveTime) {
   // TODO: do we need to worry about transmission delay?
+  unsigned long receivedDelay = packet::getDelayMicros(packet);
   unsigned long neighborCycleStartTime = (
     receiveTime -
-    packet.delayMillis * 1000UL -
+    receivedDelay -
     packetAirtimeMicros -
     packet.slot * slotSize
   );
@@ -263,11 +266,17 @@ void processPacket(const packet::Packet& packet, unsigned long receiveTime) {
   }
   else if (packet.slot == mySlot) {
     // Uh oh, we have a conflict!
-    // If we haven't already transmitted, cancel transmission and pick a new slot when the cycle
-    // completes -- essentially leaving and re-joining the network.
-    if (myState == State::cycleStarted || myState == State::txReady) {
+    // Flip a coin to decide whether to keep the slot or pick a new slot when the cycle completes,
+    // essentially leaving and re-joining the network.
+    DEBUG_PRINT(clock::micros());
+    DEBUG_PRINT(F(" TDMA conflict"));
+
+    if (random(2) == 0) {
       startupPhase = true;
-      setCycleEndTimeout();
+      DEBUG_PRINTLN(F(" move"));
+    }
+    else {
+      DEBUG_PRINTLN(F(" stay"));
     }
   }
   else if (packet.slot == totalSlots - 1) {
