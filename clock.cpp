@@ -3,30 +3,22 @@
 #include "clock.h"
 #include "debug.h"
 
-#if F_CPU == 8000000
-  // 8 micros precision (64 / 8 MHz)
-  #define CLOCK_MICROS_PER_TICK 8UL
-  #define CLOCK_PRESCALER (bit(CS22))
-#elif F_CPU == 4000000
-  // 8 micros precision (32 / 4 MHz)
-  #define CLOCK_MICROS_PER_TICK 8UL
-  #define CLOCK_PRESCALER (bit(CS21) | bit(CS20))
-#elif F_CPU == 2000000
-  // 16 micros precision (32 / 2 MHz)
-  #define CLOCK_MICROS_PER_TICK 16UL
-  #define CLOCK_PRESCALER (bit(CS21) | bit(CS20))
-#elif F_CPU == 1000000
-  // 8 micros precision (8 / 1 MHz)
-  #define CLOCK_MICROS_PER_TICK 8UL
-  #define CLOCK_PRESCALER (bit(CS21))
-#else
-  // Assume 16 MHz
-  // 8 micros precision (128 / 16 MHz)
-  #define CLOCK_MICROS_PER_TICK 8UL
+#ifdef CLOCK_USE_32KHZ_CRYSTAL
+  // No prescaling, ~30.5 micros precision
+  #define CLOCK_PRESCALER bit(CS20)
+#elif F_CPU == 16000000
+  // 16 micros precision (256 / 16 MHz)
+  #define CLOCK_PRESCALER (bit(CS22) | bit(CS21))
+#elif F_CPU == 8000000
+  // 16 micros precision (128 / 8 MHz)
   #define CLOCK_PRESCALER (bit(CS22) | bit(CS20))
+#elif F_CPU == 4000000
+  // 16 micros precision (64 / 4 MHz)
+  #define CLOCK_PRESCALER bit(CS22)
+#else
+  // 2MHz or less. Either 16 micros (32 / 2 MHz) or 32 micros (32 / 1MHz) precision
+  #define CLOCK_PRESCALER (bit(CS21) | bit(CS20))
 #endif
-
-#define CLOCK_MICROS_PER_OVERFLOW (256UL * CLOCK_MICROS_PER_TICK)
 
 
 
@@ -34,8 +26,8 @@ namespace {
 
 void (*callback)() = nullptr;
 unsigned long timeout = 0UL;
-volatile unsigned long nextCycleMicros = 0UL;
-volatile unsigned long microsElapsed = 0UL;
+volatile unsigned int nextCycleTicks = 256;
+volatile unsigned long currentTime = 0UL;
 volatile bool timeoutActive = false;
 
 } // namespace
@@ -44,22 +36,22 @@ volatile bool timeoutActive = false;
 
 // Timer2 overflow interrupt routine
 ISR(TIMER2_OVF_vect) {
-  microsElapsed += nextCycleMicros;
+  currentTime += nextCycleTicks;
 
   if (timeoutActive) {
-    long remaining = timeout - microsElapsed;
+    long remaining = timeout - currentTime;
 
     if (remaining <= 0) {
       // Reset the cycle size in case we had a remainder on the final cycle
-      nextCycleMicros = CLOCK_MICROS_PER_OVERFLOW;
+      nextCycleTicks = 256;
 
       callback();
       timeoutActive = false;
     }
-    else if ((unsigned long) remaining < CLOCK_MICROS_PER_OVERFLOW) {
-      // Count only the remaining micros until the timeout on the next cycle
-      nextCycleMicros = remaining;
-      TCNT2 = (unsigned char) (256L - remaining / CLOCK_MICROS_PER_TICK);
+    else if (remaining < 256L) {
+      // Count only the remaining ticks until the timeout on the next cycle
+      nextCycleTicks = remaining;
+      TCNT2 = (unsigned char) (256L - remaining);
     }
   }
 }
@@ -71,7 +63,7 @@ namespace clock {
 void start() {
   cli();
 
-  ASSR &= ~bit(AS2); // Internal clock
+  ASSR |= bit(AS2); // Asynchronous clock so it keeps running in power save mode
   TCCR2A = 0;	// Normal operation
   TCCR2B = CLOCK_PRESCALER;
   TCNT2 = 0;
@@ -86,24 +78,20 @@ void start() {
 
   sei();
 
-  nextCycleMicros = CLOCK_MICROS_PER_OVERFLOW;
+#ifdef CLOCK_USE_32KHZ_CRYSTAL
+  // Give the crystal a chance to settle
+  delay(5000);
+#endif
 
-  DEBUG_PRINT(F("CLOCK "));
-  DEBUG_PRINT(CLOCK_MICROS_PER_TICK);
-  DEBUG_PRINT(F(" micros per tick @ "));
-  DEBUG_PRINT(F_CPU / 1000000);
-  DEBUG_PRINTLN(F(" MHz"));
+  DEBUG_PRINT(F("CLOCK started at "));
+  DEBUG_PRINT(CLOCK_TICKS_PER_SECOND);
+  DEBUG_PRINTLN(F(" ticks per second"));
 }
 
 
 
-void setTimeout(void (*cb)(), unsigned long durationMicros) {
-  timeout = clock::micros() + durationMicros;
-  // We have a maximum precision of CLOCK_MICROS_PER_TICK, so we call the callback at the *beginning*
-  // of the tick that contains the timeout. Round the timeout down to the nearest tick to reflect
-  // this.
-  timeout -= timeout % CLOCK_MICROS_PER_TICK;
-
+void setTimeout(void (*cb)(), unsigned long durationTicks) {
+  timeout = ticks() + durationTicks;
   callback = cb;
   timeoutActive = true;
 }
@@ -117,15 +105,15 @@ void clearTimeout() {
 
 
 
-unsigned long micros() {
-  unsigned long sinceLastCycle = TCNT2 * CLOCK_MICROS_PER_TICK;
+unsigned long ticks() {
+  unsigned long sinceLastCycle = TCNT2;
 
   // Special case for truncated final tick, we skipped part of this cycle
-  if (nextCycleMicros < CLOCK_MICROS_PER_OVERFLOW) {
-    sinceLastCycle -= CLOCK_MICROS_PER_OVERFLOW - nextCycleMicros;
+  if (nextCycleTicks < 256) {
+    sinceLastCycle -= 256 - nextCycleTicks;
   }
 
-  return microsElapsed + sinceLastCycle;
+  return currentTime + sinceLastCycle;
 }
 
 } // namespace clock

@@ -27,12 +27,17 @@
 #define RFM_CS_PIN 4
 #define LED_PIN 8
 
+// The built-in max() macro doesn't work for globals in some versions of the Arduino library
+// (e.g. MiniCore)
+#define MY_MAX(a, b) ((b) > (a) ? (b) : (a))
+
 // Computed from the networking parameters and packet size
 // See https://www.rfwireless-world.com/calculators/LoRaWAN-Airtime-calculator.html
-constexpr unsigned long PACKET_AIRTIME_MICROS = (unsigned long) (
-  1000.0 * ((1 << LORA_SF) / RFM_BW) * (
+constexpr unsigned long PACKET_AIRTIME_TICKS = (unsigned long) (
+   (CLOCK_TICKS_PER_SECOND / 1000.) * // Convert milliseconds to ticks
+   ((1 << LORA_SF) / RFM_BW) * (
     (LORA_PREAMBLE + 4.25) + // Preamble
-    (8.0 + max(
+    (8.0 + MY_MAX(
       0.0,
       ceil((8.0 * sizeof(packet::Packet) - 4.0 * LORA_SF + 44.0) / (4.0 * LORA_SF)) * LORA_CR
     )) // Payload
@@ -95,7 +100,8 @@ void setup() {
   }
 
   DEBUG_PRINT(F("RFM95 initialized, packet airtime "));
-  DEBUG_PRINTLN(PACKET_AIRTIME_MICROS);
+  DEBUG_PRINT(PACKET_AIRTIME_TICKS);
+  DEBUG_PRINTLN(F(" ticks"));
 
   // The radio makes a great random number generator
   randomSeed(
@@ -118,7 +124,7 @@ void setup() {
     while (true);
   }
 
-  tdma::start(PACKET_AIRTIME_MICROS);
+  tdma::start(PACKET_AIRTIME_TICKS);
 }
 
 
@@ -167,22 +173,9 @@ void loop() {
 
 void handleReceive() {
   if (enableReceiveInterrupt) {
-    receiveTime = clock::micros();
+    receiveTime = clock::ticks();
     dataReceived = true;
   }
-}
-
-
-
-// TODO: Add a string coersion to the packet class instead
-void debugPrintPacketBuffer() {
-#if DEBUG
-  for (unsigned int i = 0; i < sizeof(packet::Packet) / sizeof(uint8_t); i++) {
-    DEBUG_PRINT(F(" 0x"));
-    DEBUG_PRINT(((uint8_t*) &packetBuffer)[i], HEX);
-  }
-  DEBUG_PRINTLN();
-#endif
 }
 
 
@@ -209,8 +202,9 @@ bool receive() {
   DEBUG_PRINT(receiveTime);
 
   if (radioState == RADIOLIB_ERR_NONE) {
-    DEBUG_PRINT(F(" RECEIVED"));
-    debugPrintPacketBuffer();
+    DEBUG_PRINT(F(" RECEIVED "));
+    packetBuffer.debugPrint();
+    DEBUG_PRINTLN();
   }
   else {
     DEBUG_PRINT(F(" RECEIVE ERROR code "));
@@ -225,34 +219,36 @@ bool receive() {
 void transmit() {
   waitForRadio();
 
-  long delayMicros = tdma::getSlotTimeElapsed();
+  packet::Packet packet;
+  long delayTicks = tdma::getSlotTicksElapsed();
 
-  if (delayMicros > (long) PACKET_MAX_DELAY_MICROS) {
+  if (delayTicks > (long) CLOCK_MICROS_TO_TICKS(PACKET_MAX_DELAY_MICROS)) {
     // The delay is too large to represent in the packet, we've certainly missed our slot anyway,
     // just skip this transmission
-    DEBUG_PRINT(clock::micros());
-    DEBUG_PRINT(F(" Skipping tx delayMicros="));
-    DEBUG_PRINTLN(delayMicros);
+    DEBUG_PRINT(clock::ticks());
+    DEBUG_PRINT(F(" Skipping tx delayTicks:"));
+    DEBUG_PRINTLN(delayTicks);
     return;
   }
 
-  packetBuffer.slot = tdma::getSlotNumber();
-  // These two fields are not currently in use
-  packetBuffer.flags = 0;
-  packetBuffer.reserved = 0;
-  packet::setDelayMicros(packetBuffer, max(0L, delayMicros));
+  packet.setSlot(tdma::getSlotNumber());
+  packet.setDelayTicks(max(0L, delayTicks));
+  packet.setClosestSlot(grouper::getClosestSlot());
+  packet.setClosestDistance(grouper::getClosestDistance());
+  packet.setGroupSize(grouper::getGroupSize());
 
   // Send data, disabling interrupt while tranmitting (otherwise it's triggered on TX done)
   bool receiveInterruptPrevState = enableReceiveInterrupt;
 
   enableReceiveInterrupt = false;
-  int radioState = radio.transmit((uint8_t*) &packetBuffer, sizeof(packet::Packet));
+  int radioState = radio.transmit((uint8_t*) &packet, sizeof(packet::Packet));
   enableReceiveInterrupt = receiveInterruptPrevState;
 
   if (radioState == RADIOLIB_ERR_NONE) {
-    DEBUG_PRINT(clock::micros());
-    DEBUG_PRINT(F(" SENT"));
-    debugPrintPacketBuffer();
+    DEBUG_PRINT(clock::ticks());
+    DEBUG_PRINT(F(" SENT "));
+    packet.debugPrint();
+    DEBUG_PRINTLN();
   }
   else {
     DEBUG_PRINT(F("Could not transmit, code "));

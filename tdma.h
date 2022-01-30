@@ -28,9 +28,9 @@ void txComplete();
 // This node's slot number (zero-indexed), -1 means still starting up
 int getSlotNumber();
 
-// How many microseconds have elapsed since the beginning of the node's slot in the current cycle.
+// How many ticks have elapsed since the beginning of the node's slot in the current cycle.
 // Signed to give a valid value before the start of the node's slot.
-long getSlotTimeElapsed();
+long getSlotTicksElapsed();
 
 } // namespace tdma
 

@@ -33,10 +33,10 @@
 
 
 
-#define TDMA_CYCLE_DURATION 5000000UL // 5 seconds in microseconds
-#define TDMA_SLOT_PADDING 30000UL // How much silence to allow in each slot, 30 ms in microseconds
+#define TDMA_CYCLE_DURATION (5UL * CLOCK_TICKS_PER_SECOND) // 5 seconds in ticks
+#define TDMA_SLOT_PADDING (CLOCK_TICKS_PER_SECOND / 32UL) // How much silence to allow in a slot, ~31 ms
 #define TDMA_STEAL_AFTER_UNUSED_CYCLES 6 // How long to wait to reuse slots, max 255
-#define TDMA_MAX_TX_DELAY_MICROS (TDMA_SLOT_PADDING / 5UL) // Don't delay more than 20% of padding
+#define TDMA_MAX_TX_DELAY_TICKS (TDMA_SLOT_PADDING / 5UL) // Don't delay more than 20% of padding
 
 
 
@@ -46,7 +46,7 @@ namespace {
 using namespace tdma;
 
 // Provided/computed at startup time
-unsigned long packetAirtimeMicros = 0UL;
+unsigned long packetAirtimeTicks = 0UL;
 unsigned long slotSize = 0UL;
 int availableSlots = 0;
 
@@ -66,7 +66,7 @@ uint8_t lastSlotUnusedCycles = 0;
 
 void handleCycleStartTimeout() {
   // We always wake up one slotSize early
-  cycleStartTime = clock::micros() + slotSize;
+  cycleStartTime = clock::ticks() + slotSize;
   myState = State::cycleStarted;
   timeoutFired = true;
 }
@@ -89,7 +89,7 @@ void handleTransmitTimeout() {
 
 void handleStartupTimeout() {
   // All alone
-  DEBUG_PRINT(clock::micros());
+  DEBUG_PRINT(clock::ticks());
   DEBUG_PRINTLN(F(" TDMA alone"));
 
   mySlot = 0;
@@ -108,15 +108,15 @@ void setCycleStartTimeout() {
 
   // Wake up a little early to make sure we hear (or properly schedule) the first slot.
   unsigned long cycleStartTimeout = TDMA_CYCLE_DURATION - slotSize + adjustment - (
-    clock::micros() - cycleStartTime
+    clock::ticks() - cycleStartTime
   );
 
   clock::setTimeout(handleCycleStartTimeout, cycleStartTimeout);
 
-  DEBUG_PRINT(clock::micros());
+  DEBUG_PRINT(clock::ticks());
   DEBUG_PRINT(F(" TDMA sleep for "));
   DEBUG_PRINT(cycleStartTimeout);
-  DEBUG_PRINT(F(" adjustment="));
+  DEBUG_PRINT(F(" adjustment:"));
   DEBUG_PRINTLN(adjustment);
 }
 
@@ -125,11 +125,11 @@ void setCycleStartTimeout() {
 void setCycleEndTimeout() {
   // Listen for a couple extra slots in case someone new is trying to join
   unsigned long cycleEndTimeout = slotSize * (totalSlots + 2) - (
-    clock::micros() - cycleStartTime
+    clock::ticks() - cycleStartTime
   );
   clock::setTimeout(handleCycleEndTimeout, cycleEndTimeout);
 
-  DEBUG_PRINT(clock::micros());
+  DEBUG_PRINT(clock::ticks());
   DEBUG_PRINT(F(" TDMA cycle ends in "));
   DEBUG_PRINTLN(cycleEndTimeout);
 }
@@ -139,8 +139,8 @@ void setCycleEndTimeout() {
 void setTransmitTimeout() {
   // Add a small random offset from the start of the slot to help resolve any collisions.
   // The packets we send announce this delay so it won't affect synchronization.
-  unsigned long txTimeout = slotSize * mySlot + random(TDMA_MAX_TX_DELAY_MICROS);
-  unsigned long now = clock::micros();
+  unsigned long txTimeout = slotSize * mySlot + random(TDMA_MAX_TX_DELAY_TICKS);
+  unsigned long now = clock::ticks();
 
   // We wake up a little before the first slot, so the cycleStartTime may be in the future.
   if ((long) (cycleStartTime - now) > 0) {
@@ -152,7 +152,7 @@ void setTransmitTimeout() {
 
   clock::setTimeout(handleTransmitTimeout, txTimeout);
 
-  DEBUG_PRINT(clock::micros());
+  DEBUG_PRINT(clock::ticks());
   DEBUG_PRINT(F(" Will transmit in "));
   DEBUG_PRINTLN(txTimeout);
 }
@@ -188,11 +188,9 @@ void endCycle() {
     prevSlotUnusedCycles = 0;
     lastSlotUnusedCycles = 0;
 
-    DEBUG_PRINT(clock::micros());
-    DEBUG_PRINT(F(" TDMA join | slot="));
-    DEBUG_PRINT(mySlot);
-    DEBUG_PRINT(F(" total="));
-    DEBUG_PRINTLN(totalSlots);
+    DEBUG_PRINT(clock::ticks());
+    DEBUG_PRINT(F(" TDMA join at "));
+    DEBUG_PRINTLN(mySlot);
   }
   else if (mySlot > 0 && prevSlotUnusedCycles >= TDMA_STEAL_AFTER_UNUSED_CYCLES) {
     // The slot below us isn't in use, steal it to defragment the cycle. If we were in the last
@@ -203,7 +201,7 @@ void endCycle() {
     mySlot--;
     prevSlotUnusedCycles = 0;
 
-    DEBUG_PRINT(clock::micros());
+    DEBUG_PRINT(clock::ticks());
     DEBUG_PRINT(F(" TDMA my slot now "));
     DEBUG_PRINTLN(mySlot);
   }
@@ -216,7 +214,7 @@ void endCycle() {
     totalSlots--;
     lastSlotUnusedCycles = 0;
 
-    DEBUG_PRINT(clock::micros());
+    DEBUG_PRINT(clock::ticks());
     DEBUG_PRINT(F(" TDMA total slots decreased to "));
     DEBUG_PRINTLN(totalSlots);
   }
@@ -231,8 +229,8 @@ void endCycle() {
 namespace tdma {
 
 void start(unsigned long packetAirtime) {
-  packetAirtimeMicros = packetAirtime;
-  slotSize = packetAirtimeMicros + TDMA_SLOT_PADDING;
+  packetAirtimeTicks = packetAirtime;
+  slotSize = packetAirtimeTicks + TDMA_SLOT_PADDING;
   availableSlots = TDMA_CYCLE_DURATION / slotSize;
   // Initial startup phase timer
   clock::setTimeout(handleStartupTimeout, TDMA_CYCLE_DURATION * 3);
@@ -241,20 +239,22 @@ void start(unsigned long packetAirtime) {
 
 
 void processPacket(const packet::Packet& packet, unsigned long receiveTime) {
-  if (packet.slot >= availableSlots) {
-    DEBUG_PRINT(clock::micros());
+  uint8_t slot = packet.getSlot();
+
+  if (slot >= availableSlots) {
+    DEBUG_PRINT(clock::ticks());
     DEBUG_PRINT(F(" TDMA no such slot! "));
-    DEBUG_PRINTLN(packet.slot);
+    DEBUG_PRINTLN(slot);
     return;
   }
 
   // TODO: do we need to worry about transmission delay?
-  unsigned long receivedDelay = packet::getDelayMicros(packet);
+  unsigned long receivedDelay = packet.getDelayTicks();
   unsigned long neighborCycleStartTime = (
     receiveTime -
     receivedDelay -
-    packetAirtimeMicros -
-    packet.slot * slotSize
+    packetAirtimeTicks -
+    slot * slotSize
   );
 
   if (startupPhase && cycleStartTime == 0UL) {
@@ -269,15 +269,15 @@ void processPacket(const packet::Packet& packet, unsigned long receiveTime) {
   cycleNeighborCount++;
   cycleOffset += (long) (neighborCycleStartTime - cycleStartTime);
 
-  if (packet.slot == mySlot - 1) {
+  if (slot == mySlot - 1) {
     // Track when the previous slot is unusued so we can steal it
     prevSlotUnusedCycles = 0;
   }
-  else if (packet.slot == mySlot) {
+  else if (slot == mySlot) {
     // Uh oh, we have a conflict!
     // Flip a coin to decide whether to keep the slot or pick a new slot when the cycle completes,
     // essentially leaving and re-joining the network.
-    DEBUG_PRINT(clock::micros());
+    DEBUG_PRINT(clock::ticks());
     DEBUG_PRINT(F(" TDMA conflict"));
 
     if (random(2) == 0) {
@@ -288,13 +288,13 @@ void processPacket(const packet::Packet& packet, unsigned long receiveTime) {
       DEBUG_PRINTLN(F(" stay"));
     }
   }
-  else if (packet.slot == totalSlots - 1) {
+  else if (slot == totalSlots - 1) {
     // Track when the last slot is unused so we can shrink the cycle accordingly
     lastSlotUnusedCycles = 0;
   }
-  else if (packet.slot >= totalSlots) {
+  else if (slot >= totalSlots) {
     // A new neighbor! Update our state and reset our end of cycle timer if necesssary.
-    totalSlots = packet.slot + 1;
+    totalSlots = slot + 1;
     lastSlotUnusedCycles = 0;
 
     if (startupPhase || myState == State::txComplete) {
@@ -303,7 +303,7 @@ void processPacket(const packet::Packet& packet, unsigned long receiveTime) {
       setCycleEndTimeout();
     }
 
-    DEBUG_PRINT(clock::micros());
+    DEBUG_PRINT(clock::ticks());
     DEBUG_PRINT(F(" TDMA total slots increased to "));
     DEBUG_PRINTLN(totalSlots);
   }
@@ -341,8 +341,8 @@ int getSlotNumber() {
 
 
 
-long getSlotTimeElapsed() {
-  return clock::micros() - mySlot * slotSize - cycleStartTime;
+long getSlotTicksElapsed() {
+  return clock::ticks() - mySlot * slotSize - cycleStartTime;
 }
 
 } // namespace tdma

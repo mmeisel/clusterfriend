@@ -35,3 +35,6 @@ Receiving random garbage:
 3363987992 RECEIVED 0x2 0x6 0x0 0x0
 3367034104 TDMA sleep for 4293010584 adjustment=4690296
 3367046440 Will transmit in 120585
+
+After changing the sync word and turning on CRCs, I STILL got one of these, which makes me think
+it's some sort of local issue.

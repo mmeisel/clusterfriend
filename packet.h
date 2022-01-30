@@ -6,21 +6,34 @@
 namespace packet {
 
 struct Packet {
-  uint8_t slot;
-  uint8_t delay;
-  uint8_t flags;
-  uint8_t reserved;
+public:
+  uint8_t getSlot() const;
+  void setSlot(uint8_t slot);
+
+  unsigned long getDelayTicks() const;
+  void setDelayTicks(unsigned long ticks);
+
+  uint8_t getClosestSlot() const;
+  void setClosestSlot(uint8_t slot);
+
+  uint8_t getClosestDistance() const;
+  void setClosestDistance(uint8_t distance);
+
+  uint8_t getGroupSize() const;
+  void setGroupSize(uint8_t groupSize);
+
+  void debugPrint() const;
+
+private:
+  uint8_t flags_ = 0;
+  uint8_t slot_ = 0;
+  // In increments of 256 microseconds (shift left by 8 to get microseconds)
+  uint8_t delay_ = 0;
+  uint8_t closestSlot_ = 0;
+  uint8_t closestDistance_ = 0;
+  uint8_t groupSize_ = 0;
+  uint16_t reserved_ = 0;
 };
-
-inline unsigned long getDelayMicros(const Packet& packet) {
-  return (unsigned long) packet.delay << 8;
-}
-
-inline void setDelayMicros(Packet& packet, unsigned long micros) {
-  // We discard the lowest 8 bits, giving a resolution of 256 microseconds, which should be
-  // precise enough for our purposes.
-  packet.delay = (micros >> 8) & 0xffUL;
-}
 
 } // namespace packet
 
