@@ -13,7 +13,7 @@ enum class State:uint8_t {
 };
 
 // Call from setup()
-void startup(unsigned long packetAirtime);
+void start(unsigned long packetAirtime);
 
 // Must be called unconditionally from loop()! Returns the current state. Use this to determine
 // when to listen (cycleStarted), when to transmit (txReady), and when to sleep (cycleComplete).

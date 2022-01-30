@@ -56,6 +56,7 @@ tdma::State tdmaState = tdma::State::cycleComplete;
 
 void setup() {
   DEBUG_BEGIN(57600);
+  clock::start();
 
   pinMode(LED_PIN, OUTPUT);
 
@@ -117,7 +118,7 @@ void setup() {
     while (true);
   }
 
-  tdma::startup(PACKET_AIRTIME_MICROS);
+  tdma::start(PACKET_AIRTIME_MICROS);
 }
 
 

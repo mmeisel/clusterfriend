@@ -230,7 +230,7 @@ void endCycle() {
 
 namespace tdma {
 
-void startup(unsigned long packetAirtime) {
+void start(unsigned long packetAirtime) {
   packetAirtimeMicros = packetAirtime;
   slotSize = packetAirtimeMicros + TDMA_SLOT_PADDING;
   availableSlots = TDMA_CYCLE_DURATION / slotSize;

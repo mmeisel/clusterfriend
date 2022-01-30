@@ -3,10 +3,12 @@
 
 namespace clock {
 
+// Must be called first before calling any other function
+void start();
+
 void setTimeout(void (*cb)(), unsigned long durationMicros);
 void clearTimeout();
 unsigned long micros();
-void stop();
 
 } // namespace clock
 
