@@ -1,10 +1,11 @@
 #include <Arduino.h>
+#include <util/atomic.h>
 
 #include "clock.h"
 #include "debug.h"
 
 #ifdef CLOCK_USE_32KHZ_CRYSTAL
-  // No prescaling, ~30.5 micros precision
+  // No prescaling, ~30.5 micros precision (1 / 32.768 kHz)
   #define CLOCK_PRESCALER bit(CS20)
 #elif F_CPU == 16000000
   // 16 micros precision (256 / 16 MHz)
@@ -63,18 +64,23 @@ namespace clock {
 void start() {
   cli();
 
-  ASSR |= bit(AS2); // Asynchronous clock so it keeps running in power save mode
+  ASSR = bit(AS2); // Asynchronous clock so it keeps running in power save mode
   TCCR2A = 0;	// Normal operation
   TCCR2B = CLOCK_PRESCALER;
   TCNT2 = 0;
-  TIMSK2 = bit(TOIE2); // Enable overflow interruption when 0
 
   // Wait for registers to update
   while (ASSR & (bit(TCR2BUB) | bit(TCR2AUB) | bit(TCN2UB) | bit(OCR2AUB)));
 
+  // Clear interrupt flag
+  TIFR2 |= bit(TOV2);
+  while (TIFR2 & bit(TOV2));
+
   // Reset prescaler and wait for it to finish
   GTCCR |= bit(PSRASY);
   while (GTCCR & bit(PSRASY));
+
+  TIMSK2 = bit(TOIE2); // Enable overflow interruption when 0
 
   sei();
 
@@ -90,8 +96,22 @@ void start() {
 
 
 
-void setTimeout(void (*cb)(), unsigned long durationTicks) {
-  timeout = ticks() + durationTicks;
+void waitForSync() {
+  // This will wait for the internal I/O clock to be synced with the asynchronous clock. According
+  // to the datasheet, we must do this:
+  // - Before entering power save
+  // - After waking from power save before reading TCNT2
+  OCR2A = 0;
+  while (ASSR & bit(OCR2AUB));
+}
+
+
+
+void setTimeout(void (*cb)(), unsigned long expirationTime) {
+  // According to the datasheet, during asynchronous operation, the interrupt handler is always
+  // called at least one clock cycle after the overflow. Therefore, we can be a bit more accurate
+  // (without ever firing too early) by subtracting one from the expiration time.
+  timeout = expirationTime - 1UL;
   callback = cb;
   timeoutActive = true;
 }
@@ -106,14 +126,13 @@ void clearTimeout() {
 
 
 unsigned long ticks() {
-  unsigned long sinceLastCycle = TCNT2;
+  unsigned long curTicks;
 
-  // Special case for truncated final tick, we skipped part of this cycle
-  if (nextCycleTicks < 256) {
-    sinceLastCycle -= 256 - nextCycleTicks;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    // Use nextCycleTicks to account for a truncated final cycle before a timeout
+    curTicks = currentTime + 256 - nextCycleTicks + TCNT2;
   }
-
-  return currentTime + sinceLastCycle;
+  return curTicks;
 }
 
 } // namespace clock

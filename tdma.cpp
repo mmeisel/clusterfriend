@@ -107,15 +107,13 @@ void setCycleStartTimeout() {
   long adjustment = cycleOffset / (cycleNeighborCount + 1);
 
   // Wake up a little early to make sure we hear (or properly schedule) the first slot.
-  unsigned long cycleStartTimeout = TDMA_CYCLE_DURATION - slotSize + adjustment - (
-    clock::ticks() - cycleStartTime
-  );
+  unsigned long wakeUpTime = cycleStartTime + TDMA_CYCLE_DURATION - TDMA_SLOT_PADDING + adjustment;
 
-  clock::setTimeout(handleCycleStartTimeout, cycleStartTimeout);
+  clock::setTimeout(handleCycleStartTimeout, wakeUpTime);
 
   DEBUG_PRINT(clock::ticks());
-  DEBUG_PRINT(F(" TDMA sleep for "));
-  DEBUG_PRINT(cycleStartTimeout);
+  DEBUG_PRINT(F(" TDMA sleep until "));
+  DEBUG_PRINT(wakeUpTime);
   DEBUG_PRINT(F(" adjustment:"));
   DEBUG_PRINTLN(adjustment);
 }
@@ -124,14 +122,13 @@ void setCycleStartTimeout() {
 
 void setCycleEndTimeout() {
   // Listen for a couple extra slots in case someone new is trying to join
-  unsigned long cycleEndTimeout = slotSize * (totalSlots + 2) - (
-    clock::ticks() - cycleStartTime
-  );
-  clock::setTimeout(handleCycleEndTimeout, cycleEndTimeout);
+  unsigned long cycleEndTime = cycleStartTime + slotSize * (totalSlots + 2);
+
+  clock::setTimeout(handleCycleEndTimeout, cycleEndTime);
 
   DEBUG_PRINT(clock::ticks());
-  DEBUG_PRINT(F(" TDMA cycle ends in "));
-  DEBUG_PRINTLN(cycleEndTimeout);
+  DEBUG_PRINT(F(" TDMA cycle ends at "));
+  DEBUG_PRINTLN(cycleEndTime);
 }
 
 
@@ -139,22 +136,13 @@ void setCycleEndTimeout() {
 void setTransmitTimeout() {
   // Add a small random offset from the start of the slot to help resolve any collisions.
   // The packets we send announce this delay so it won't affect synchronization.
-  unsigned long txTimeout = slotSize * mySlot + random(TDMA_MAX_TX_DELAY_TICKS);
-  unsigned long now = clock::ticks();
+  unsigned long txTime = cycleStartTime + slotSize * mySlot + random(TDMA_MAX_TX_DELAY_TICKS);
 
-  // We wake up a little before the first slot, so the cycleStartTime may be in the future.
-  if ((long) (cycleStartTime - now) > 0) {
-    txTimeout += cycleStartTime - now;
-  }
-  else {
-    txTimeout -= now - cycleStartTime;
-  }
-
-  clock::setTimeout(handleTransmitTimeout, txTimeout);
+  clock::setTimeout(handleTransmitTimeout, txTime);
 
   DEBUG_PRINT(clock::ticks());
-  DEBUG_PRINT(F(" Will transmit in "));
-  DEBUG_PRINTLN(txTimeout);
+  DEBUG_PRINT(F(" TDMA will transmit at "));
+  DEBUG_PRINTLN(txTime);
 }
 
 
@@ -233,7 +221,7 @@ void start(unsigned long packetAirtime) {
   slotSize = packetAirtimeTicks + TDMA_SLOT_PADDING;
   availableSlots = TDMA_CYCLE_DURATION / slotSize;
   // Initial startup phase timer
-  clock::setTimeout(handleStartupTimeout, TDMA_CYCLE_DURATION * 3);
+  clock::setTimeout(handleStartupTimeout, clock::ticks() + TDMA_CYCLE_DURATION * 3);
 }
 
 

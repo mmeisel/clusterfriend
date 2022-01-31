@@ -181,7 +181,9 @@ void handleReceive() {
 
 
 void goToSleep() {
+  clock::waitForSync();
   LowPower.powerSave(SLEEP_FOREVER, ADC_OFF, BOD_OFF, TIMER2_ON);
+  clock::waitForSync();
 }
 
 
