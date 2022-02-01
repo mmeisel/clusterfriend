@@ -6,6 +6,7 @@
 
 #include "debug.h"
 #include "clock.h"
+#include "grouper.h"
 #include "packet.h"
 #include "tdma.h"
 
@@ -136,6 +137,7 @@ void loop() {
 
     if (receive()) {
       tdma::processPacket(packetBuffer, receiveTime);
+      grouper::processPacket(packetBuffer, radio.getSNR());
     }
 
     enableReceiveInterrupt = true;
@@ -162,6 +164,8 @@ void loop() {
       // Make sure we complete any radio operation that's currently ongoing
       waitForRadio();
       radio.sleep();
+
+      grouper::completeCycle();
     }
   }
 
