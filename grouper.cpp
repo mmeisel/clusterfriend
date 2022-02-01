@@ -10,27 +10,19 @@
 #define GROUPER_MAX_SNR 10.
 #define GROUPER_GROUPING_DISTANCE 25
 #define GROUPER_NONE 255
-#define GROUPER_MAX_NEIGHBORS 70 // This should match the TDMA setup
+#define GROUPER_PREV_WEIGHT 0.25
 
 
 
 namespace {
 
-struct NeighborInfo {
-  uint8_t distance = 255;
-  uint8_t lastUpdate = 0;
-  uint8_t neighbor = GROUPER_NONE;
-  uint8_t distanceToNeighbor = 255;
-};
-
-NeighborInfo neighbors[GROUPER_MAX_NEIGHBORS];
-
-uint8_t cycleCounter = 0;
-uint8_t prevClosestSlot = GROUPER_NONE;
 uint8_t prevGroupSize = 1;
-uint8_t closestSlot = GROUPER_NONE;
-uint8_t closestGroup = GROUPER_NONE;
+uint8_t prevNearestGroupDistance = 255;
+uint8_t prevNearestGroupSlot = GROUPER_NONE;
+int nearestGroupDelta = 0;
 uint8_t groupSize = 1;
+uint8_t nearestGroupSlot = GROUPER_NONE;
+uint8_t nearestGroupDistance = 0;
 
 
 
@@ -53,102 +45,71 @@ uint8_t snrToDistance(float snr) {
 namespace grouper {
 
 void processPacket(const packet::Packet& packet, float snr) {
-  if (packet.getSlot() >= GROUPER_MAX_NEIGHBORS) {
-    DEBUG_PRINT(F("GROUPER no such slot "));
-    DEBUG_PRINTLN(packet.getSlot());
-    return;
-  }
-
-  uint8_t slot = packet.getSlot();
+  uint8_t packetGroupSize = packet.getGroupSize();
   uint8_t distance = snrToDistance(snr);
-  NeighborInfo& entry = neighbors[slot];
 
-  entry.distance = distance; // TODO: hysteresis?
-  entry.lastUpdate = cycleCounter;
-  entry.neighbor = packet.getClosestSlot();
-  entry.distanceToNeighbor = packet.getClosestDistance();
-
-  if (closestSlot == GROUPER_NONE || distance < neighbors[closestSlot].distance) {
-    closestSlot = slot;
-  }
-
-  if (packet.getGroupSize() > prevGroupSize && (
-    closestGroup == GROUPER_NONE || distance < neighbors[closestGroup].distance
-  )) {
-    closestGroup = slot;
-  }
-
+  // TODO: better grouping algorithm?
   if (distance <= GROUPER_GROUPING_DISTANCE) {
     groupSize++;
+  }
+  else if (nearestGroupSlot == GROUPER_NONE || (
+    distance < nearestGroupDistance && packetGroupSize >= prevGroupSize
+  )) {
+    nearestGroupDistance = distance;
+    nearestGroupSlot = packet.getSlot();
   }
 }
 
 
 
 void completeCycle() {
-  DEBUG_PRINT(clock::ticks());
-  DEBUG_PRINT(F(" GROUPER "));
+  if (prevNearestGroupSlot != GROUPER_NONE && nearestGroupSlot != GROUPER_NONE) {
+    uint8_t prevPrevDistance = prevNearestGroupDistance;
 
-  if (closestGroup == GROUPER_NONE) {
-    DEBUG_PRINT(F(" in largest group size:"));
-    DEBUG_PRINTLN(groupSize);
+    prevNearestGroupDistance = (uint8_t) (
+      GROUPER_PREV_WEIGHT * prevNearestGroupDistance +
+      (1. - GROUPER_PREV_WEIGHT) * nearestGroupDistance +
+      0.5 // For rounding
+    );
+    nearestGroupDelta = (int) prevNearestGroupDistance - prevPrevDistance;
   }
-  else if (neighbors[closestGroup].neighbor != GROUPER_NONE) {
-    NeighborInfo& otherNeighbor = neighbors[neighbors[closestGroup].neighbor];
-    double r1 = neighbors[closestGroup].distance;
-    double r2 = otherNeighbor.distance;
-    double baseline = neighbors[closestGroup].distanceToNeighbor;
+  else if (nearestGroupSlot != GROUPER_NONE) {
+    prevNearestGroupDistance = nearestGroupDistance;
+    nearestGroupDelta = 0;
+  }
 
-    // Only use data from this cycle or the previous
-    // TODO: how to tell the difference between initialized to zero and updated at zero?
-    if (cycleCounter - otherNeighbor.lastUpdate < 2) {
-      double x = (r1 * r1 - r2 * r2 + baseline * baseline) / (2. * baseline);
-      double y = sqrt(r1 * r1 - x * x);
+  prevGroupSize = groupSize;
+  prevNearestGroupSlot = nearestGroupSlot;
+  groupSize = 1;
+  nearestGroupDistance = 255;
+  nearestGroupSlot = GROUPER_NONE;
 
-      DEBUG_PRINT(F("closest group has "));
-      DEBUG_PRINT(closestGroup);
-      DEBUG_PRINT(F(" and "));
-      DEBUG_PRINT(neighbors[closestGroup].neighbor);
-      DEBUG_PRINT(F(" r1:"));
-      DEBUG_PRINT(r1);
-      DEBUG_PRINT(F(" r2:"));
-      DEBUG_PRINT(r2);
-      DEBUG_PRINT(F(" U:"));
-      DEBUG_PRINT(baseline);
-      DEBUG_PRINT(F(" coordinate:"));
-      DEBUG_PRINT(x);
-      DEBUG_PRINT(F(","));
-      DEBUG_PRINTLN(y);
-    }
-    else {
-      DEBUG_PRINTLN(F("data too stale for trilateration"));
-    }
+  DEBUG_PRINT(clock::ticks());
+  DEBUG_PRINT(F(" GROUPER group of "));
+  DEBUG_PRINT(prevGroupSize);
+
+  if (prevNearestGroupSlot == GROUPER_NONE) {
+    DEBUG_PRINTLN(F(" largest"));
   }
   else {
-      DEBUG_PRINTLN(F("not enough data for trilateration"));
+    DEBUG_PRINT(F(" near "));
+    DEBUG_PRINT(prevNearestGroupSlot);
+    DEBUG_PRINT(F(" distance:"));
+    DEBUG_PRINT(prevNearestGroupDistance);
+    DEBUG_PRINT(F(" delta:"));
+    DEBUG_PRINTLN(nearestGroupDelta);
   }
-
-  prevClosestSlot = closestSlot;
-  prevGroupSize = groupSize;
-  closestSlot = GROUPER_NONE;
-  groupSize = 1;
-  closestGroup = GROUPER_NONE;
-  cycleCounter++;
 }
 
 
 
-uint8_t getClosestSlot() {
-  return prevClosestSlot;
+int getNearestGroupDelta() {
+  return nearestGroupDelta;
 }
 
-
-
-uint8_t getClosestDistance() {
-  return neighbors[prevClosestSlot].distance;
+uint8_t getNearestGroupDistance() {
+  return prevNearestGroupDistance;
 }
-
-
 
 uint8_t getGroupSize() {
   return prevGroupSize;

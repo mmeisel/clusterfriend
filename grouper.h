@@ -12,8 +12,8 @@ void processPacket(const packet::Packet& packet, float snr);
 void completeCycle();
 
 // Get the data collected in the previous cycle
-uint8_t getClosestSlot();
-uint8_t getClosestDistance();
+int getNearestGroupDelta();
+uint8_t getNearestGroupDistance();
 uint8_t getGroupSize();
 
 } // namespace grouper

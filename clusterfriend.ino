@@ -159,13 +159,14 @@ void loop() {
       radio.startReceive();
     }
     else if (newState == tdma::State::cycleComplete) {
-      digitalWrite(LED_PIN, LOW);
-
       // Make sure we complete any radio operation that's currently ongoing
       waitForRadio();
       radio.sleep();
 
       grouper::completeCycle();
+
+      // TODO: use grouper data
+      digitalWrite(LED_PIN, LOW);
     }
   }
 
@@ -239,8 +240,6 @@ void transmit() {
 
   packet.setSlot(tdma::getSlotNumber());
   packet.setDelayTicks(max(0L, delayTicks));
-  packet.setClosestSlot(grouper::getClosestSlot());
-  packet.setClosestDistance(grouper::getClosestDistance());
   packet.setGroupSize(grouper::getGroupSize());
 
   // Send data, disabling interrupt while tranmitting (otherwise it's triggered on TX done)

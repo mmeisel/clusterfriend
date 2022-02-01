@@ -30,26 +30,6 @@ void Packet::setDelayTicks(unsigned long ticks) {
 
 
 
-uint8_t Packet::getClosestSlot() const {
-  return this->closestSlot_;
-}
-
-void Packet::setClosestSlot(uint8_t slot) {
-  this->closestSlot_ = slot;
-}
-
-
-
-uint8_t Packet::getClosestDistance() const {
-  return this->closestDistance_;
-}
-
-void Packet::setClosestDistance(uint8_t distance) {
-  this->closestDistance_ = distance;
-}
-
-
-
 uint8_t Packet::getGroupSize() const {
   return this->groupSize_;
 }
@@ -67,11 +47,7 @@ void Packet::debugPrint() const {
   DEBUG_PRINT(this->slot_);
   DEBUG_PRINT(F(" d:"));
   DEBUG_PRINT(this->delay_ << 8);
-  DEBUG_PRINT(F("us cs:"));
-  DEBUG_PRINT(this->closestSlot_);
-  DEBUG_PRINT(F(" cd:"));
-  DEBUG_PRINT(this->closestDistance_);
-  DEBUG_PRINT(F(" gs:"));
+  DEBUG_PRINT(F("us gs:"));
   DEBUG_PRINT(this->groupSize_);
   DEBUG_PRINT(F(" r:"));
   DEBUG_PRINT(this->reserved_);

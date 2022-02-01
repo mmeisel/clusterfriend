@@ -13,12 +13,6 @@ public:
   unsigned long getDelayTicks() const;
   void setDelayTicks(unsigned long ticks);
 
-  uint8_t getClosestSlot() const;
-  void setClosestSlot(uint8_t slot);
-
-  uint8_t getClosestDistance() const;
-  void setClosestDistance(uint8_t distance);
-
   uint8_t getGroupSize() const;
   void setGroupSize(uint8_t groupSize);
 
@@ -29,10 +23,8 @@ private:
   uint8_t slot_ = 0;
   // In increments of 256 microseconds (shift left by 8 to get microseconds)
   uint8_t delay_ = 0;
-  uint8_t closestSlot_ = 0;
-  uint8_t closestDistance_ = 0;
   uint8_t groupSize_ = 0;
-  uint16_t reserved_ = 0;
+  uint8_t reserved_ = 0;
 };
 
 } // namespace packet
