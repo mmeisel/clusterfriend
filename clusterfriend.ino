@@ -135,6 +135,14 @@ void loop() {
     enableReceiveInterrupt = false;
     dataReceived = false;
 
+    // This requires a bit of explanation. If we are here, this means we woke up due to a receive
+    // interrupt from the radio. After waking from power save, we need to wait for a single cycle
+    // of the clock before it will read accurately. But this is the only case where we need to worry
+    // about this because every other interrupt comes from the clock itself, and that interrupt
+    // can't fire until after the clock has already ticked one cycle.
+    // See "Asynchronous Operation of Timer/Counter2" in the datasheet for more details.
+    clock::waitForSync();
+
     if (receive()) {
       tdma::processPacket(packetBuffer, receiveTime);
       grouper::processPacket(packetBuffer, radio.getSNR());
@@ -188,7 +196,6 @@ void handleReceive() {
 void goToSleep() {
   clock::waitForSync();
   LowPower.powerSave(SLEEP_FOREVER, ADC_OFF, BOD_OFF, TIMER2_ON);
-  clock::waitForSync();
 }
 
 

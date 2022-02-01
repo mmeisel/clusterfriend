@@ -30,8 +30,9 @@ namespace clock {
 // Must be called first before calling any other function
 void start();
 
-// Must be called both before AND after power save! See "Asynchronous Operation of Timer/Counter2"
-// in the ATmega328P datasheet.
+// This must be called before entering power save mode. It should also be called before calling
+// ticks() after waking from power save mode to ensure complete accuracy. See
+// "Asynchronous Operation of Timer/Counter2" in the ATmega328P datasheet for more details.
 void waitForSync();
 
 void setTimeout(void (*cb)(), unsigned long expirationTime);
