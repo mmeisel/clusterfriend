@@ -21,6 +21,11 @@
   #define CLOCK_PRESCALER (bit(CS21) | bit(CS20))
 #endif
 
+// For the stabilize() function
+#define CLOCK_STABILIZE_MAX_WAIT_MICROS 5000000L
+#define CLOCK_STABILIZE_MICROS_PER_CHECK 15625UL // 1/64th of a second
+#define CLOCK_STABILIZE_TICKS_PER_CHECK (CLOCK_TICKS_PER_SECOND / 64UL)
+
 
 
 namespace {
@@ -30,6 +35,42 @@ unsigned long timeout = 0UL;
 volatile unsigned int nextCycleTicks = 256;
 volatile unsigned long currentTime = 0UL;
 volatile bool timeoutActive = false;
+
+
+
+#ifdef CLOCK_USE_32KHZ_CRYSTAL
+void stabilize() {
+  // Use the builtin micros() function (run off of the system clock) to see when our clock starts
+  // becoming accurate enough
+  unsigned long startMicros = micros();
+  long average = -1L;
+
+  // Uses the Jacobson-Karels TCP RTT algorithm for running average
+  while (average != CLOCK_STABILIZE_TICKS_PER_CHECK) {
+    if ((long) (micros() - startMicros) >= CLOCK_STABILIZE_MAX_WAIT_MICROS) {
+      DEBUG_PRINTLN(F("CLOCK not stable!"));
+      break;
+    }
+
+    unsigned long curTicks = clock::ticks();
+
+    delayMicroseconds(CLOCK_STABILIZE_MICROS_PER_CHECK);
+
+    long ticksElapsed = clock::ticks() - curTicks;
+
+    if (average < 0) {
+      average = ticksElapsed;
+    }
+    else {
+      average += (ticksElapsed - average) >> 3;
+    }
+  }
+
+  DEBUG_PRINT(F("CLOCK stable in "));
+  DEBUG_PRINT(micros() - startMicros);
+  DEBUG_PRINTLN(F("us"));
+}
+#endif
 
 } // namespace
 
@@ -86,7 +127,7 @@ void start() {
 
 #ifdef CLOCK_USE_32KHZ_CRYSTAL
   // Give the crystal a chance to settle
-  delay(5000);
+  stabilize();
 #endif
 
   DEBUG_PRINT(F("CLOCK started at "));
