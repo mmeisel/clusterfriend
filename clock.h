@@ -27,6 +27,12 @@
 
 namespace clock {
 
+struct TimeoutInfo {
+  bool active;
+  void (*callback)();
+  unsigned long expirationTime;
+};
+
 // Must be called first before calling any other function
 void start();
 
@@ -35,8 +41,17 @@ void start();
 // "Asynchronous Operation of Timer/Counter2" in the ATmega328P datasheet for more details.
 void waitForSync();
 
+// Gets the active timeout. If active is set to false, there is no active timeout, and the other
+// fields should be ignored.
+TimeoutInfo getTimeout();
+
+// Sets a new timeout, replacing the current one, if any
 void setTimeout(void (*cb)(), unsigned long expirationTime);
+
+// Cancels the current timeout, if any
 void clearTimeout();
+
+// Current time in ticks
 unsigned long ticks();
 
 } // namespace clock

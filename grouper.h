@@ -15,6 +15,7 @@ void completeCycle();
 int getNearestGroupDelta();
 uint8_t getNearestGroupDistance();
 uint8_t getGroupSize();
+bool isInLargestGroup();
 
 } // namespace grouper
 

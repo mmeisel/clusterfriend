@@ -22,11 +22,20 @@
 #define LORA_SYNC_WORD 0xcf // Default is RADIOLIB_SX127X_SYNC_WORD (0x12)
 #define LORA_ENABLE_CRC true
 
+// LED parameters
+#define LED_BRIGHTNESS 127 // 0-255
+#define LED_ON_TICKS (CLOCK_TICKS_PER_SECOND / 8UL)
+#define LED_MIN_INTERVAL_TICKS (CLOCK_TICKS_PER_SECOND / 4UL)
+#define LED_MAX_INTERVAL_TICKS (CLOCK_TICKS_PER_SECOND + CLOCK_TICKS_PER_SECOND / 2UL)
+
 // Pins
-#define RFM_RST_PIN 2
-#define RFM_G0_PIN 3
+#define RFM_RST_PIN 5
+#define RFM_G0_PIN 2
 #define RFM_CS_PIN 4
-#define LED_PIN 8
+#define LED_GND_PIN 3
+#define LED_RED_PIN 9
+#define LED_GREEN_PIN 7
+#define LED_BLUE_PIN 8
 
 // The built-in max() macro doesn't work for globals in some versions of the Arduino library
 // (e.g. MiniCore)
@@ -51,6 +60,7 @@ RFM95 radio = new Module(RFM_CS_PIN, RFM_G0_PIN, RFM_RST_PIN);
 // Interrupt handler states
 volatile bool dataReceived = false;
 volatile unsigned long receiveTime = 0UL;
+volatile bool blinkTimerFired = false;
 
 // Disable receive interrupt when it's not needed
 volatile bool enableReceiveInterrupt = true;
@@ -64,7 +74,14 @@ void setup() {
   DEBUG_BEGIN(57600);
   clock::start();
 
-  pinMode(LED_PIN, OUTPUT);
+  pinMode(LED_GND_PIN, OUTPUT);
+  pinMode(LED_RED_PIN, OUTPUT);
+  pinMode(LED_GREEN_PIN, OUTPUT);
+  pinMode(LED_BLUE_PIN, OUTPUT);
+
+  // Turn the LED yellow during startup (a color not otherwise used)
+  setLedColor(true, true, false);
+  setLedOn(true);
 
   // Manually reset RFM95W
   pinMode(RFM_RST_PIN, OUTPUT);
@@ -161,7 +178,9 @@ void loop() {
       radio.startReceive();
     }
     else if (newState == tdma::State::txReady) {
-      digitalWrite(LED_PIN, HIGH);
+      // Turn the LED white from TX to cycle end
+      setLedColor(true, true, true);
+      setLedOn(true);
       transmit();
       tdma::txComplete();
       radio.startReceive();
@@ -172,13 +191,10 @@ void loop() {
       radio.sleep();
 
       grouper::completeCycle();
-
-      // TODO: use grouper data
-      digitalWrite(LED_PIN, LOW);
+      blinkLed();
     }
   }
 
-  DEBUG_FLUSH();
   goToSleep();
 }
 
@@ -194,8 +210,16 @@ void handleReceive() {
 
 
 void goToSleep() {
+  DEBUG_FLUSH();
   clock::waitForSync();
+  // Only the 32kHz crystal will keep running during power save. If we need the main clock, we need
+  // to use extended standby, which is the same as power save except it keeps the oscillator
+  // running.
+#ifdef CLOCK_USE_32KHZ_CRYSTAL
   LowPower.powerSave(SLEEP_FOREVER, ADC_OFF, BOD_OFF, TIMER2_ON);
+#else
+  LowPower.powerExtStandby(SLEEP_FOREVER, ADC_OFF, BOD_OFF, TIMER2_ON);
+#endif
 }
 
 
@@ -266,4 +290,91 @@ void transmit() {
     DEBUG_PRINT(F("Could not transmit, code "));
     DEBUG_PRINTLN(radioState);
   }
+}
+
+
+
+void setLedColor(bool red, bool green, bool blue) {
+  digitalWrite(LED_RED_PIN, red);
+  digitalWrite(LED_GREEN_PIN, green);
+  digitalWrite(LED_BLUE_PIN, blue);
+}
+
+
+
+void setLedOn(bool enable) {
+  if (enable) {
+    analogWrite(LED_GND_PIN, 255 - LED_BRIGHTNESS); // Inverted since this is the ground pin
+  }
+  else {
+    digitalWrite(LED_GND_PIN, HIGH);
+  }
+}
+
+
+
+void handleBlinkTimer() {
+  blinkTimerFired = true;
+}
+
+
+
+void blinkLed() {
+  int delta = grouper::getNearestGroupDelta();
+  uint8_t groupSize = grouper::getGroupSize();
+  uint8_t distance = grouper::getNearestGroupDistance();
+  bool isInLargestGroup = grouper::isInLargestGroup();
+  unsigned long blinkInterval = LED_MAX_INTERVAL_TICKS;
+
+  setLedOn(false);
+
+  // Red for getting hotter, blue for getting colder, purple when it's neither. The faster the LED
+  // blinks, the closer you are. Green when you're in the biggest group, off when you're alone.
+  if (isInLargestGroup) {
+    if (groupSize <= 1) {
+      // All alone :'( just leave the LED off.
+      return;
+    }
+    setLedColor(false, true, false);
+  }
+  else {
+    setLedColor(delta <= 0, false, delta >= 0);
+    blinkInterval = (
+      LED_MIN_INTERVAL_TICKS + distance * (LED_MAX_INTERVAL_TICKS - LED_MIN_INTERVAL_TICKS) / 255UL
+    );
+  }
+
+  // Blink during the TDMA sleep cycle
+  clock::TimeoutInfo tdmaTimeout = clock::getTimeout();
+
+  if (!tdmaTimeout.active) {
+    // We should only call this during TDMA sleep, just bail
+    return;
+  }
+
+  int blinkCount = (long) (tdmaTimeout.expirationTime - clock::ticks()) / blinkInterval;
+
+  for (int i = 0; i < blinkCount; i++) {
+    unsigned long blinkStart = clock::ticks();
+
+    clock::setTimeout(handleBlinkTimer, blinkStart + blinkInterval - LED_ON_TICKS);
+
+    do {
+      goToSleep();
+    } while (!blinkTimerFired);
+
+    blinkTimerFired = false;
+    setLedOn(true);
+    clock::setTimeout(handleBlinkTimer, blinkStart + blinkInterval);
+
+    do {
+      goToSleep();
+    } while (!blinkTimerFired);
+
+    blinkTimerFired = false;
+    setLedOn(false);
+  }
+
+  // Restore the TDMA timeout
+  clock::setTimeout(tdmaTimeout.callback, tdmaTimeout.expirationTime);
 }

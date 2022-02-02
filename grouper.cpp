@@ -23,6 +23,7 @@ int nearestGroupDelta = 0;
 uint8_t groupSize = 1;
 uint8_t nearestGroupSlot = GROUPER_NONE;
 uint8_t nearestGroupDistance = 0;
+bool inLargestGroup = false;
 
 
 
@@ -78,6 +79,7 @@ void completeCycle() {
     nearestGroupDelta = 0;
   }
 
+  inLargestGroup = nearestGroupSlot == GROUPER_NONE;
   prevGroupSize = groupSize;
   prevNearestGroupSlot = nearestGroupSlot;
   groupSize = 1;
@@ -113,6 +115,10 @@ uint8_t getNearestGroupDistance() {
 
 uint8_t getGroupSize() {
   return prevGroupSize;
+}
+
+bool isInLargestGroup() {
+  return inLargestGroup;
 }
 
 } // namespace grouper

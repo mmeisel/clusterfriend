@@ -106,7 +106,8 @@ void start() {
   cli();
 
   ASSR = bit(AS2); // Asynchronous clock so it keeps running in power save mode
-  TCCR2A = 0;	// Normal operation
+  // Fast PWM mode so we have the option of using the clock for an LED as well
+  TCCR2A = bit(COM2A1) | bit(WGM21) | bit(WGM20);
   TCCR2B = CLOCK_PRESCALER;
   TCNT2 = 0;
 
@@ -138,17 +139,25 @@ void start() {
 
 
 void waitForSync() {
-  // This will wait for the internal I/O clock to be synced with the asynchronous clock. According
-  // to the datasheet, we must do this:
+  // This will wait for the main clock to be synced with the asynchronous clock. According to the
+  // datasheet, we must do this:
   // - Before entering power save
   // - After waking from power save before reading TCNT2
-  OCR2A = 0;
+  OCR2A = OCR2A;
   while (ASSR & bit(OCR2AUB));
 }
 
 
 
+TimeoutInfo getTimeout() {
+  // See setTimeout() for the explanation of the +1
+  return { timeoutActive, callback, timeout + 1UL };
+}
+
+
+
 void setTimeout(void (*cb)(), unsigned long expirationTime) {
+  timeoutActive = false;
   // According to the datasheet, during asynchronous operation, the interrupt handler is always
   // called at least one clock cycle after the overflow. Therefore, we can be a bit more accurate
   // (without ever firing too early) by subtracting one from the expiration time.
