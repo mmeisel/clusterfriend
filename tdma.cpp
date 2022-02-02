@@ -65,8 +65,8 @@ uint8_t lastSlotUnusedCycles = 0;
 
 
 void handleCycleStartTimeout() {
-  // We always wake up one slotSize early
-  cycleStartTime = clock::ticks() + slotSize;
+  // We always wake up one TDMA_SLOT_PADDING early
+  cycleStartTime = clock::ticks() + TDMA_SLOT_PADDING;
   myState = State::cycleStarted;
   timeoutFired = true;
 }
