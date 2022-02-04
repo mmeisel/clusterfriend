@@ -5,10 +5,13 @@
 #include "grouper.h"
 
 
-
 #define GROUPER_MIN_SNR -20.
 #define GROUPER_MAX_SNR 10.
-#define GROUPER_GROUPING_DISTANCE 25
+// Hopefully roughly 3 meters at a transmit power of 2 dB, see:
+// https://www.rfwireless-world.com/calculators/rf-budget-calculator.html
+// This value comes from using the power output by the formula and mapping it from the typical LoRa
+// RSSI range of -30 to -120 to our distance range of 0-255.
+#define GROUPER_GROUPING_DISTANCE 15
 #define GROUPER_NONE 255
 #define GROUPER_PREV_WEIGHT 0.25
 
@@ -21,6 +24,7 @@ uint8_t prevNearestGroupDistance = 255;
 uint8_t prevNearestGroupSlot = GROUPER_NONE;
 int nearestGroupDelta = 0;
 uint8_t groupSize = 1;
+uint8_t groupLargestHeardSize = 0;
 uint8_t nearestGroupSlot = GROUPER_NONE;
 uint8_t nearestGroupDistance = 0;
 bool inLargestGroup = false;
@@ -39,6 +43,11 @@ uint8_t snrToDistance(float snr) {
   ) + 0.5; // For rounding
 }
 
+
+
+// https://medium.com/analytics-vidhya/jenks-natural-breaks-best-range-finder-algorithm-8d1907192051
+
+
 } // namespace
 
 
@@ -49,9 +58,11 @@ void processPacket(const packet::Packet& packet, float snr) {
   uint8_t packetGroupSize = packet.getGroupSize();
   uint8_t distance = snrToDistance(snr);
 
-  // TODO: better grouping algorithm?
   if (distance <= GROUPER_GROUPING_DISTANCE) {
     groupSize++;
+    if (packetGroupSize > groupLargestHeardSize) {
+      groupLargestHeardSize = packetGroupSize;
+    }
   }
   else if (nearestGroupSlot == GROUPER_NONE || (
     distance < nearestGroupDistance && packetGroupSize >= prevGroupSize
@@ -80,9 +91,12 @@ void completeCycle() {
   }
 
   inLargestGroup = nearestGroupSlot == GROUPER_NONE;
-  prevGroupSize = groupSize;
+  // Record my group size as the larger of the number of neighbors I heard and what I heard them
+  // announce as their group size. This allows a sort of chain to be formed of nearby nodes.
+  prevGroupSize = max(groupSize, groupLargestHeardSize);
   prevNearestGroupSlot = nearestGroupSlot;
   groupSize = 1;
+  groupLargestHeardSize = 0;
   nearestGroupDistance = 255;
   nearestGroupSlot = GROUPER_NONE;
 
