@@ -49,7 +49,7 @@ void stabilize() {
   while (average != CLOCK_STABILIZE_TICKS_PER_CHECK) {
     if ((long) (micros() - startMicros) >= CLOCK_STABILIZE_MAX_WAIT_MICROS) {
       DEBUG_PRINTLN(F("CLOCK not stable!"));
-      break;
+      return;
     }
 
     unsigned long curTicks = clock::ticks();
