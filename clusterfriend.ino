@@ -1,6 +1,6 @@
 // Required libraries:
 // - Low-Power v1.81.0 (https://github.com/rocketscream/Low-Power)
-// - RadioLib v5.7.0 (https://github.com/jgromes/RadioLib)
+// - RadioLib v6.4.2 (https://github.com/jgromes/RadioLib)
 #include <LowPower.h>
 #include <RadioLib.h>
 
@@ -130,7 +130,7 @@ void setup() {
   );
 
   // Set receive interrupt handler and start listening
-  radio.setDio0Action(handleReceive);
+  radio.setDio0Action(handleReceive, RISING);
   radioState = radio.startReceive();
 
   if (radioState == RADIOLIB_ERR_NONE) {
