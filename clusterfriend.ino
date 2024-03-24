@@ -1,6 +1,6 @@
 // Required libraries:
 // - Low-Power v1.81.0 (https://github.com/rocketscream/Low-Power)
-// - RadioLib v5.1.0 (https://github.com/jgromes/RadioLib)
+// - RadioLib v5.7.0 (https://github.com/jgromes/RadioLib)
 #include <LowPower.h>
 #include <RadioLib.h>
 
