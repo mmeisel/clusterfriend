@@ -23,10 +23,10 @@
 #define LORA_ENABLE_CRC true
 
 // LED parameters
-#define LED_BRIGHTNESS 127 // 0-255
+#define LED_BRIGHTNESS 255 // 0-255
 #define LED_ON_TICKS (CLOCK_TICKS_PER_SECOND / 8UL)
 #define LED_MIN_INTERVAL_TICKS (CLOCK_TICKS_PER_SECOND / 4UL)
-#define LED_MAX_INTERVAL_TICKS (CLOCK_TICKS_PER_SECOND + CLOCK_TICKS_PER_SECOND / 2UL)
+#define LED_MAX_INTERVAL_TICKS CLOCK_TICKS_PER_SECOND
 
 // Pins
 #define RFM_RST_PIN 5
@@ -79,8 +79,8 @@ void setup() {
   pinMode(LED_GREEN_PIN, OUTPUT);
   pinMode(LED_BLUE_PIN, OUTPUT);
 
-  // Turn the LED yellow during startup (a color not otherwise used)
-  setLedColor(true, true, false);
+  // Turn the LED blue during startup (a color not otherwise used)
+  setLedColor(false, false, true);
   setLedOn(true);
 
   // Manually reset RFM95W
@@ -320,7 +320,6 @@ void handleBlinkTimer() {
 
 
 void blinkLed() {
-  int delta = grouper::getNearestGroupDelta();
   uint8_t groupSize = grouper::getGroupSize();
   uint8_t distance = grouper::getNearestGroupDistance();
   bool isInLargestGroup = grouper::isInLargestGroup();
@@ -328,21 +327,25 @@ void blinkLed() {
 
   setLedOn(false);
 
-  // Red for getting hotter, blue for getting colder, purple when it's neither. The faster the LED
-  // blinks, the closer you are. Green when you're in the biggest group, off when you're alone.
-  if (isInLargestGroup) {
-    if (groupSize <= 1) {
-      // All alone :'( just leave the LED off.
-      return;
-    }
+  // Red for far, yellow for medium, green for close, off when you're alone.
+  // The faster the LED blinks, the closer you are.
+  if (isInLargestGroup && groupSize <= 1) {
+    // All alone :'( just leave the LED off.
+    return;
+  }
+  if (distance < 85) {
     setLedColor(false, true, false);
   }
-  else {
-    setLedColor(delta <= 0, false, delta >= 0);
-    blinkInterval = (
-      LED_MIN_INTERVAL_TICKS + distance * (LED_MAX_INTERVAL_TICKS - LED_MIN_INTERVAL_TICKS) / 255UL
-    );
+  else if (distance < 170) {
+    setLedColor(true, true, false);
   }
+  else {
+    setLedColor(true, false, false);
+  }
+
+  blinkInterval = (
+    LED_MIN_INTERVAL_TICKS + distance * (LED_MAX_INTERVAL_TICKS - LED_MIN_INTERVAL_TICKS) / 255UL
+  );
 
   // Blink during the TDMA sleep cycle
   clock::TimeoutInfo tdmaTimeout = clock::getTimeout();

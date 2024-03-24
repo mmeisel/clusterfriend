@@ -33,7 +33,7 @@
 
 
 
-#define TDMA_CYCLE_DURATION (5UL * CLOCK_TICKS_PER_SECOND) // 5 seconds in ticks
+#define TDMA_CYCLE_DURATION (2UL * CLOCK_TICKS_PER_SECOND) // 2 seconds in ticks
 #define TDMA_SLOT_PADDING (CLOCK_TICKS_PER_SECOND / 32UL) // How much silence to allow in a slot, ~31 ms
 #define TDMA_STEAL_AFTER_UNUSED_CYCLES 6 // How long to wait to reuse slots, max 255
 #define TDMA_MAX_TX_DELAY_TICKS (TDMA_SLOT_PADDING / 5UL) // Don't delay more than 20% of padding

@@ -11,7 +11,9 @@
 // https://www.rfwireless-world.com/calculators/rf-budget-calculator.html
 // This value comes from using the power output by the formula and mapping it from the typical LoRa
 // RSSI range of -30 to -120 to our distance range of 0-255.
-#define GROUPER_GROUPING_DISTANCE 15
+// #define GROUPER_GROUPING_DISTANCE 15
+// Effectively disable grouping
+#define GROUPER_GROUPING_DISTANCE 0
 #define GROUPER_NONE 255
 #define GROUPER_PREV_WEIGHT 0.25
 

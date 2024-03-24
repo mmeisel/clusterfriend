@@ -2,7 +2,7 @@
 #define __CF_DEBUG_H__
 
 // Global debug mode setting
-#define DEBUG 1
+#define DEBUG false
 
 #if DEBUG
 #define DEBUG_BEGIN(baud) Serial.begin(baud)
